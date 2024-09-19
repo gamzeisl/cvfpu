@@ -51,3 +51,6 @@ sources:
   - src/fpnew_rounding.sv
   - src/lfsr_sr.sv
   - src/fpnew_top.sv
+
+  - src/fpnew_sdotp_scale_multi.sv
+  - tb/tb_fpnew_sdotp_scale_multi.sv

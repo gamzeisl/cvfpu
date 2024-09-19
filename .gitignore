@@ -1,3 +1,9 @@
 *~
 html
 Bender.lock
+bender
+.bender/
+work/
+build/
+vsim*
+modelsim.ini
