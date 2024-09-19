@@ -346,46 +346,47 @@ module fpnew_sdotp_scale_multi #(
   logic any_pos_inf;
   logic any_neg_inf;
 
-  // Reduction for special case handling
-  assign any_operand_inf = (| {info_a[0].is_inf, info_a[1].is_inf, info_a[2].is_inf, info_a[3].is_inf,
-                             info_b[0].is_inf, info_b[1].is_inf, info_b[2].is_inf, info_b[3].is_inf,
-                             info_d.is_inf});
-  assign any_operand_nan = (| {info_a[0].is_nan, info_a[1].is_nan, info_a[2].is_nan, info_a[3].is_nan,
-                             info_b[0].is_nan, info_b[1].is_nan, info_b[2].is_nan, info_b[3].is_nan,
-                             info_c.is_nan, info_d.is_nan});
-  assign signalling_nan  = (| {info_a[0].is_signalling, info_a[1].is_signalling, 
-                             info_a[2].is_signalling, info_a[3].is_signalling,
-                             info_b[0].is_signalling, info_b[1].is_signalling,
-                             info_b[2].is_signalling, info_b[3].is_signalling,
-                             info_c.is_signalling, info_d.is_signalling});
-  // Any produced nan, positive or negative infinity
-  // 0 * inf = NaN, inf * 0 = NaN
-  assign any_produced_nan = (| {info_a[0].is_inf && info_b[0].is_zero,
-                             info_a[1].is_inf && info_b[1].is_zero,
-                             info_a[2].is_inf && info_b[2].is_zero,
-                             info_a[3].is_inf && info_b[3].is_zero,
-                             info_b[0].is_inf && info_a[0].is_zero,
-                             info_b[1].is_inf && info_a[1].is_zero,
-                             info_b[2].is_inf && info_a[2].is_zero,
-                             info_b[3].is_inf && info_a[3].is_zero});
-  assign any_pos_inf = (| {info_a[0].is_inf && ~(operands_a[0].sign ^ operands_b[0].sign),
-                         info_a[1].is_inf && ~(operands_a[1].sign ^ operands_b[1].sign),
-                         info_a[2].is_inf && ~(operands_a[2].sign ^ operands_b[2].sign),
-                         info_a[3].is_inf && ~(operands_a[3].sign ^ operands_b[3].sign),
-                         info_b[0].is_inf && ~(operands_a[0].sign ^ operands_b[0].sign),
-                         info_b[1].is_inf && ~(operands_a[1].sign ^ operands_b[1].sign),
-                         info_b[2].is_inf && ~(operands_a[2].sign ^ operands_b[2].sign),
-                         info_b[3].is_inf && ~(operands_a[3].sign ^ operands_b[3].sign),
-                         info_d.is_inf && operand_d.sign});
-  assign any_neg_inf = (| {info_a[0].is_inf && (operands_a[0].sign ^ operands_b[0].sign),
-                         info_a[1].is_inf && (operands_a[1].sign ^ operands_b[1].sign),
-                         info_a[2].is_inf && (operands_a[2].sign ^ operands_b[2].sign),
-                         info_a[3].is_inf && (operands_a[3].sign ^ operands_b[3].sign),
-                         info_b[0].is_inf && (operands_a[0].sign ^ operands_b[0].sign),
-                         info_b[1].is_inf && (operands_a[1].sign ^ operands_b[1].sign),
-                         info_b[2].is_inf && (operands_a[2].sign ^ operands_b[2].sign),
-                         info_b[3].is_inf && (operands_a[3].sign ^ operands_b[3].sign),
-                         info_d.is_inf && ~operand_d.sign});
+  // Intermediate signals for each condition
+  logic [VECTOR_SIZE-1:0] operand_inf_conditions;
+  logic [VECTOR_SIZE-1:0] operand_nan_conditions;
+  logic [VECTOR_SIZE-1:0] signalling_nan_conditions;
+  logic [VECTOR_SIZE-1:0] nan_conditions;
+  logic [VECTOR_SIZE-1:0] pos_inf_conditions;
+  logic [VECTOR_SIZE-1:0] neg_inf_conditions;
+
+  // Single generate block for all conditions
+  generate
+      for (genvar i = 0; i < VECTOR_SIZE; i = i + 1) begin : gen_conditions
+          // Check if any operand is infinite
+          assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
+          
+          // Check if any operand is NaN
+          assign operand_nan_conditions[i] = info_a[i].is_nan || info_b[i].is_nan;
+          
+          // Check for signalling NaN
+          assign signalling_nan_conditions[i] = info_a[i].is_signalling || info_b[i].is_signalling;
+          
+          // Check for produced NaN (0 * inf or inf * 0)
+          assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) || 
+                                     (info_b[i].is_inf && info_a[i].is_zero);
+          
+          // Check for positive infinity (inf with same sign)
+          assign pos_inf_conditions[i] = (info_a[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign)) ||
+                                         (info_b[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign));
+          
+          // Check for negative infinity (inf with opposite sign)
+          assign neg_inf_conditions[i] = (info_a[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign)) ||
+                                         (info_b[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign));
+      end
+  endgenerate
+
+  // Reduction for final results
+  assign any_operand_inf = |operand_inf_conditions || info_d.is_inf;
+  assign any_operand_nan = |operand_nan_conditions || info_c.is_nan || info_d.is_nan;
+  assign signalling_nan  = |signalling_nan_conditions || info_c.is_signalling || info_d.is_signalling;
+  assign any_produced_nan = |nan_conditions;
+  assign any_pos_inf = |pos_inf_conditions || (info_d.is_inf && ~operand_d.sign);
+  assign any_neg_inf = |neg_inf_conditions || (info_d.is_inf && operand_d.sign);
 
   // ----------------------
   // Special case handling
