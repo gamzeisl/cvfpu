@@ -258,9 +258,9 @@ module fpnew_sdotp_scale_multi #(
   // ----------------------------
   // Destination operand
   // ----------------------------
-  logic        [NUM_FORMATS-1:0][1:0]                         fmt_dst_sign;
-  logic signed [NUM_FORMATS-1:0][1:0][SUPER_DST_EXP_BITS-1:0] fmt_dst_exponent;
-  logic        [NUM_FORMATS-1:0][1:0][SUPER_DST_MAN_BITS-1:0] fmt_dst_mantissa;
+  logic        [NUM_FORMATS-1:0]                         fmt_dst_sign;
+  logic signed [NUM_FORMATS-1:0][SUPER_DST_EXP_BITS-1:0] fmt_dst_exponent;
+  logic        [NUM_FORMATS-1:0][SUPER_DST_MAN_BITS-1:0] fmt_dst_mantissa;
 
   // FP Input initialization (Src)
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_dst_init_inputs
@@ -325,7 +325,7 @@ module fpnew_sdotp_scale_multi #(
       info_a[i]     = info_q[src_fmt_q][i];
       info_b[i]     = info_q[src_fmt_q][i+VECTOR_SIZE];
     end
-    operand_c = '0;
+    operand_c = operand_c_q;
     operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
     info_c    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
     info_d    = info_q[dst_fmt_q][9];
