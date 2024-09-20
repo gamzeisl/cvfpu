@@ -51,6 +51,8 @@ module tb_fpnew_sdotp_scale_multi;
   integer file, r;
   string line;
   logic [31:0] expected_result;
+  logic [93:0] sum_prod, shifted_acc, sum_prod_acc;
+  logic  [8:0] shift_acc;
 
   // Instantiate the DUT (Device Under Test)
   fpnew_sdotp_scale_multi #(
@@ -130,10 +132,10 @@ module tb_fpnew_sdotp_scale_multi;
       end
 
       // Parse the string and extract individual values
-      r = $sscanf(line, "%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%b",
+      r = $sscanf(line, "%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%d,%d,%d,%d", 
                   operands_a_i[0], operands_a_i[1], operands_a_i[2], operands_a_i[3],
                   operands_b_i[0], operands_b_i[1], operands_b_i[2], operands_b_i[3],
-                  operand_c_i, operand_d_i, expected_result);
+                  operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, shifted_acc, sum_prod_acc);
 
       // Set remaining signals
       is_boxed_i = '1;
@@ -150,8 +152,17 @@ module tb_fpnew_sdotp_scale_multi;
       @(posedge clk_i);
       
       // Compare result with the expected result from Python
-      if (result_o !== expected_result) begin
-        $display("Test failed! Expected: %h, Got: %h at time %t", expected_result, result_o, $time);
+      if (dut.sum_product != sum_prod) begin
+        $display("Sum product test failed! Expected: %h, Got: %h at time %t", sum_prod, dut.sum_product, $time);
+      end
+      if (dut.accumulator_shift_amount != shift_acc) begin
+        $display("Accumlator shift amount test failed! Expected: %h, Got: %h at time %t", shift_acc, dut.accumulator_shift_amount, $time);
+      end
+      if (dut.accumulator_shifted != shifted_acc) begin
+        $display("Shifted accumulator test failed! Expected: %h, Got: %h at time %t", shifted_acc, dut.accumulator_shifted, $time);
+      end
+      if (dut.sum_product_accumulator != sum_prod_acc) begin
+        $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $time);
       end
     end
 
