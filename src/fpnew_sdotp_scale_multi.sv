@@ -87,11 +87,15 @@ module fpnew_sdotp_scale_multi #(
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
-  localparam int unsigned EXP_WIDTH = fpnew_pkg::maximum(SUPER_EXP_BITS + 2, LZC_RESULT_WIDTH);
-  localparam int unsigned DST_EXP_WIDTH = unsigned'(fpnew_pkg::maximum(SUPER_DST_EXP_BITS + 2, LZC_RESULT_WIDTH));
+  localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
+  localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 1;
   // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
   localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+4);
   localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
+
+  // Algorithm constants
+  localparam int signed MAX_ACC_SHIFT_AMOUNT = 69;
+
   // Pipelines
   localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
                             ? NumPipeRegs
@@ -466,4 +470,85 @@ module fpnew_sdotp_scale_multi #(
   // TEMPORARY: Assign special result to output
   assign result_o = special_result;
   assign out_valid_o = 1'b1;
+
+  // ------------------
+  // Product data path
+  // ------------------
+  logic [VECTOR_SIZE-1:0][  PRECISION_BITS-1:0] mantissa_a, mantissa_b;
+  logic [VECTOR_SIZE-1:0][2*PRECISION_BITS-1:0] product;  // the p*p product is 2p-bit wide
+  logic signed [VECTOR_SIZE-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
+
+  // Add implicit bits to mantissae
+  for (genvar i = 0; i < VECTOR_SIZE; i++) begin : gen_mantissa
+    assign mantissa_a[i] = {info_a[i].is_normal, operands_a[i].mantissa};
+    assign mantissa_b[i] = {info_b[i].is_normal, operands_b[i].mantissa};
+    assign product[i]    = mantissa_a[i] * mantissa_b[i];
+    assign product_signed[i] = (operands_a[i].sign ^ operands_b[i].sign) ? -product[i] : product[i];
+  end
+
+  // ------------------
+  // Shift data path
+  // ------------------
+  logic signed [VECTOR_SIZE-1:0][EXP_WIDTH-1:0] exponent_product;
+  logic signed [VECTOR_SIZE-1:0][  69-1:0] shifted_product;
+  logic [VECTOR_SIZE-1:0][  5:0] shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
+
+  // Calculate the non-biased exponent of the product
+  for (genvar i = 0; i < VECTOR_SIZE; i++) begin : gen_exponent_adjustment
+    assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
+                                + operands_b[i].exponent + info_b[i].is_subnormal 
+                                - 2*signed'(fpnew_pkg::bias(src_fmt_q));
+    // Right shift the significand by anchor point - exponent
+    // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
+    // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
+    assign shift_amount[i] = 58 - (34 - exponent_product[i] - 4);
+    assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
+  end
+
+  // ------------------
+  // Adder data path
+  // ------------------
+  logic signed [LOWER_SUM_WIDTH-1:0] sum_product;
+
+  // Sum the products
+  always_comb begin : sum_products
+    sum_product = '0;
+    for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_sum_products
+      sum_product += signed'(shifted_product[i]);
+    end
+  end
+
+  // -----------------------------
+  // Accumulator shift data path
+  // -----------------------------
+  logic signed [8:0] accumulator_shift_amount;
+  logic signed [DST_EXP_WIDTH-1:0] exponent_d;
+  logic [DST_PRECISION_BITS-1:0] mantissa_d;
+  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d;
+  logic signed [LOWER_SUM_WIDTH-1:0] accumulator_shifted, sum_product_accumulator;
+
+  // Zero-extend exponents into signed container - implicit width extension
+  assign exponent_d = {1'b0, operand_d.exponent};
+  assign mantissa_d = {info_d.is_normal, operand_d.mantissa};
+  assign signed_mantissa_d = operand_d.sign ? -mantissa_d : mantissa_d;
+
+  // Calculate the shift amount for the accumulator
+  // TODO: Check if scale comes signed or with bias
+  assign accumulator_shift_amount = signed'(34 - SUPER_DST_MAN_BITS) - signed'(operand_c)
+                                     + signed'(exponent_d + info_d.is_subnormal)
+                                     - signed'(fpnew_pkg::bias(dst_fmt_q));
+
+  always_comb begin : accumulator_shift
+    if (accumulator_shift_amount > MAX_ACC_SHIFT_AMOUNT) begin
+      // accumulator_shifted = '0;
+    end else if (accumulator_shift_amount >= 0) begin
+      accumulator_shifted = signed'(signed_mantissa_d) <<< accumulator_shift_amount;
+    end else begin
+      // TODO: Rounding bits
+      accumulator_shifted = signed'(signed_mantissa_d) >>> -accumulator_shift_amount;
+    end
+  end
+
+  assign sum_product_accumulator = sum_product + accumulator_shifted;
+
 endmodule
