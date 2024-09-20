@@ -21,7 +21,7 @@ vsim -voptargs=$VOPT_ARG $DB_SW -pedanticerrors -lib $LIB  tb_fpnew_sdotp_scale_
 
 if {$DEBUG == "ON"} {
     add log -r /*
-    add wave -r /*
+    do ../wave.do
 }
 
 run -a
