@@ -521,6 +521,8 @@ module fpnew_sdotp_scale_multi #(
   // -----------------------------
   // Accumulator shift data path
   // -----------------------------
+  logic result_is_accumulator;
+
   logic signed [8:0] accumulator_shift_amount;
   logic signed [DST_EXP_WIDTH-1:0] exponent_d;
   logic [DST_PRECISION_BITS-1:0] mantissa_d;
@@ -539,8 +541,11 @@ module fpnew_sdotp_scale_multi #(
                                      - signed'(fpnew_pkg::bias(dst_fmt_q));
 
   always_comb begin : accumulator_shift
+    result_is_accumulator = 1'b0;
     if (accumulator_shift_amount > MAX_ACC_SHIFT_AMOUNT) begin
-      // accumulator_shifted = '0;
+      // SoP is too small to change the accumulator, result is the accumulator
+      accumulator_shifted = '0;
+      result_is_accumulator = 1'b1;
     end else if (accumulator_shift_amount >= 0) begin
       accumulator_shifted = signed'(signed_mantissa_d) <<< accumulator_shift_amount;
     end else begin
