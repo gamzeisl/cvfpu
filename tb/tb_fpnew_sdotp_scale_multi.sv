@@ -51,8 +51,9 @@ module tb_fpnew_sdotp_scale_multi;
   integer file, r;
   string line;
   logic [31:0] expected_result;
-  logic [93:0] sum_prod, shifted_acc, sum_prod_acc;
+  logic [93:0] sum_prod, shifted_acc, sum_prod_acc, tb_sum_shifted;
   logic  [8:0] shift_acc;
+  logic  [8:0] tb_final_exponent;
 
   // Instantiate the DUT (Device Under Test)
   fpnew_sdotp_scale_multi #(
@@ -132,10 +133,11 @@ module tb_fpnew_sdotp_scale_multi;
       end
 
       // Parse the string and extract individual values
-      r = $sscanf(line, "%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%d,%d,%d,%d", 
+      r = $sscanf(line, "%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%d,%d,%d,%d,%b,%d", 
                   operands_a_i[0], operands_a_i[1], operands_a_i[2], operands_a_i[3],
                   operands_b_i[0], operands_b_i[1], operands_b_i[2], operands_b_i[3],
-                  operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, shifted_acc, sum_prod_acc);
+                  operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
+                  shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
 
       // Set remaining signals
       is_boxed_i = '1;
@@ -163,6 +165,20 @@ module tb_fpnew_sdotp_scale_multi;
       end
       if (dut.sum_product_accumulator != sum_prod_acc) begin
         $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $time);
+      end
+      if (dut.sum_shifted != tb_sum_shifted) begin
+        $display("Sum shifted test failed! Expected: %h, Got: %h at time %t", tb_sum_shifted, dut.sum_shifted, $time);
+      end
+      if (dut.final_exponent != tb_final_exponent) begin
+        $display("Final exponent test failed! Expected: %h, Got: %h at time %t", tb_final_exponent, dut.final_exponent, $time);
+      end
+      // TODO: Delete the negative shift amount
+      if (dut.result_d != expected_result) begin
+        if (dut.accumulator_shift_amount < 0) begin
+          $display("Negative shift amount test failed! Expected: %h, Got: %h at time %t", expected_result, dut.result_d, $time);
+        end else begin
+          $display("Result test FAILED! Expected: %h, Got: %h at time %t", expected_result, dut.result_d, $time);
+        end
       end
     end
 

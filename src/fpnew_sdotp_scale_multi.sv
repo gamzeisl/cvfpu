@@ -90,7 +90,7 @@ module fpnew_sdotp_scale_multi #(
   localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
   localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 1;
   // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
-  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+4);
+  localparam int unsigned SHIFT_AMOUNT_WIDTH = 7;
   localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
 
   // Algorithm constants
@@ -138,6 +138,7 @@ module fpnew_sdotp_scale_multi #(
   logic [DST_WIDTH-1:0]      operand_d_q;
   fpnew_pkg::fp_format_e src_fmt_q;
   fpnew_pkg::fp_format_e dst_fmt_q;
+  fpnew_pkg::roundmode_e rnd_mode_q;
 
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][3:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
@@ -208,6 +209,7 @@ module fpnew_sdotp_scale_multi #(
   assign operand_d_q    = inp_pipe_operand_d_q[NUM_INP_REGS];
   assign src_fmt_q      = inp_pipe_src_fmt_q[NUM_INP_REGS];
   assign dst_fmt_q      = inp_pipe_dst_fmt_q[NUM_INP_REGS];
+  assign rnd_mode_q     = inp_pipe_rnd_mode_q[NUM_INP_REGS];
 
   logic [7:0][SRC_WIDTH-1:0] operands_post_inp_pipe;
   assign operands_post_inp_pipe = {operands_b_q, operands_a_q};
@@ -555,5 +557,192 @@ module fpnew_sdotp_scale_multi #(
   end
 
   assign sum_product_accumulator = sum_product + accumulator_shifted;
+
+  // --------------
+  // Normalization
+  // --------------
+  logic        [LOWER_SUM_WIDTH-1:0]  sum_magnitude, sum_shifted;
+  logic        [LZC_RESULT_WIDTH-1:0] leading_zero_count;     // the number of leading zeroes
+  logic signed [LZC_RESULT_WIDTH:0]   leading_zero_count_sgn; // signed leading-zero count
+  logic                               lzc_zeroes;             // in case only zeroes found
+
+  logic        [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt; // Normalization shift amount
+  logic signed [DST_EXP_WIDTH-1:0]      normalized_exponent;
+
+  logic                                 final_sign;
+  logic        [DST_PRECISION_BITS-1:0] final_mantissa;
+  logic        [LOWER_SUM_WIDTH-DST_PRECISION_BITS-1:0] sum_sticky_bits;
+  logic                                 sticky_after_norm;
+  logic signed [DST_EXP_WIDTH-1:0]      final_exponent;
+
+  // Leading sign counter
+  // If sum is negative, complement to feed into leading zero counter
+  assign final_sign    = sum_product_accumulator[LOWER_SUM_WIDTH-1];
+  assign sum_magnitude = final_sign ? -sum_product_accumulator : sum_product_accumulator;
+
+  // Leading sign counter
+  lzc #(
+    .WIDTH ( LOWER_SUM_WIDTH ),
+    .MODE  ( 1               ) // MODE = 1 counts leading zeroes
+  ) i_lzc (
+    .in_i    ( sum_magnitude      ),
+    .cnt_o   ( leading_zero_count ),
+    .empty_o ( lzc_zeroes         )
+  );
+
+  assign leading_zero_count_sgn = signed'({1'b0, leading_zero_count});
+
+  // Shift the sum to normalize it
+  assign norm_shamt = leading_zero_count_sgn + 1;
+  assign sum_shifted = sum_magnitude << norm_shamt;
+
+  // Calculate the biased exponent (excess-127 form)
+  // The exponent-major is -scaled_anchor
+  // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent
+  assign normalized_exponent = signed'(127) - (signed'(34)-signed'(operand_c_q)) + (signed'(94) - leading_zero_count_sgn - 1);
+
+  // LSB of final mantissa is the rounding bit
+  assign {final_mantissa, sum_sticky_bits} = sum_shifted;
+  assign final_exponent                    = normalized_exponent;
+  assign sticky_after_norm                 = |sum_sticky_bits;
+
+  // ----------------------------
+  // Rounding and classification
+  // ----------------------------
+  logic                                             pre_round_sign;
+  logic [SUPER_DST_EXP_BITS+SUPER_DST_MAN_BITS-1:0] pre_round_abs; // absolute value of result before rounding
+  logic [1:0]                                       round_sticky_bits;
+
+  logic of_before_round, of_after_round; // overflow
+  logic uf_before_round, uf_after_round; // underflow
+
+  logic [NUM_FORMATS-1:0][SUPER_DST_EXP_BITS+SUPER_DST_MAN_BITS-1:0] fmt_pre_round_abs; // per format
+  logic [NUM_FORMATS-1:0][1:0]                                       fmt_round_sticky_bits;
+
+  logic [NUM_FORMATS-1:0]                           fmt_of_after_round;
+  logic [NUM_FORMATS-1:0]                           fmt_uf_after_round;
+
+  logic                                             rounded_sign;
+  logic [SUPER_DST_EXP_BITS+SUPER_DST_MAN_BITS-1:0] rounded_abs; // absolute value of result after rounding
+  logic                                             result_zero;
+
+  // Classification before round. RISC-V mandates checking underflow AFTER rounding
+  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt_q))-1; // infinity exponent is all ones
+  assign uf_before_round = final_exponent == 0;               // exponent for subnormals capped to 0
+
+  // Pack exponent and mantissa into proper rounding form
+  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_res_assemble
+    // Set up some constants
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned ALL_EXTRA_BITS = fpnew_pkg::maximum(SUPER_DST_MAN_BITS-MAN_BITS+1+DST_PRECISION_BITS+PRECISION_BITS+2+1, 1);
+
+    logic [EXP_BITS-1:0] pre_round_exponent;
+    logic [MAN_BITS-1:0] pre_round_mantissa;
+
+    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+
+      assign pre_round_exponent = (of_before_round) ? 2**EXP_BITS-2 : final_exponent[EXP_BITS-1:0];
+      assign pre_round_mantissa = (of_before_round) ? '1 : final_mantissa[SUPER_DST_MAN_BITS-:MAN_BITS];
+      // Assemble result before rounding. In case of overflow, the largest normal value is set.
+      assign fmt_pre_round_abs[fmt] = {pre_round_exponent, pre_round_mantissa}; // 0-extend
+
+      // Round bit is after mantissa (1 in case of overflow for rounding)
+      assign fmt_round_sticky_bits[fmt][1] = final_mantissa[SUPER_DST_MAN_BITS-MAN_BITS] |
+                                             of_before_round;
+
+      // remaining bits in mantissa to sticky (1 in case of overflow for rounding)
+      if (MAN_BITS < SUPER_DST_MAN_BITS) begin : narrow_sticky
+        assign fmt_round_sticky_bits[fmt][0] = (| final_mantissa[SUPER_DST_MAN_BITS-MAN_BITS-1:0]) |
+                                               sticky_after_norm | of_before_round;
+      end else begin : normal_sticky
+        assign fmt_round_sticky_bits[fmt][0] = sticky_after_norm | of_before_round;
+      end
+    end else begin : inactive_format
+      assign fmt_pre_round_abs[fmt] = '{default: fpnew_pkg::DONT_CARE};
+      assign fmt_round_sticky_bits[fmt] = '{default: fpnew_pkg::DONT_CARE};
+    end
+  end
+
+  // Assemble result before rounding. In case of overflow, the largest normal value is set.
+  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt_q];
+
+  // In case of overflow, the round and sticky bits are set for proper rounding
+  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q];
+  // TODO: Check for zeros
+  // assign pre_round_sign     = (info_max_is_zero_q && (pre_round_abs == '0) && (| round_sticky_bits))
+  //                             ? final_sign_zero_q : final_sign_z;
+  assign pre_round_sign     = final_sign;
+
+  // Perform the rounding
+  fpnew_rounding #(
+    .AbsWidth     ( SUPER_DST_EXP_BITS + SUPER_DST_MAN_BITS )
+  ) i_fpnew_rounding (
+    .clk_i                      ( clk_i                    ),
+    .rst_ni                     ( rst_ni                   ),
+    .id_i                       ( '0                       ),
+    .abs_value_i                ( pre_round_abs            ),
+    .en_rsr_i                   ( 1'b0                     ),
+    .sign_i                     ( pre_round_sign           ),
+    .round_sticky_bits_i        ( round_sticky_bits        ),
+    .stochastic_rounding_bits_i ( '0                       ),
+    .rnd_mode_i                 ( rnd_mode_q               ),
+    .effective_subtraction_i    ( 1'b0  ), // TODO: Check if this is correct
+    .abs_rounded_o              ( rounded_abs              ),
+    .sign_o                     ( rounded_sign             ),
+    .exact_zero_o               ( result_zero              )
+  );
+
+  logic [NUM_FORMATS-1:0][DST_WIDTH-1:0] fmt_result;
+
+  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_sign_inject
+    // Set up some constants
+    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+
+    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+      always_comb begin : post_process
+        // detect of / uf
+        fmt_uf_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0; // denormal
+        fmt_of_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '1; // inf exp.
+
+        // Assemble regular result, nan box short ones.
+        fmt_result[fmt]               = '1;
+        fmt_result[fmt][FP_WIDTH-1:0] = {rounded_sign, rounded_abs[EXP_BITS+MAN_BITS-1:0]};
+      end
+    end else begin : inactive_format
+      assign fmt_uf_after_round[fmt] = fpnew_pkg::DONT_CARE;
+      assign fmt_of_after_round[fmt] = fpnew_pkg::DONT_CARE;
+      assign fmt_result[fmt]         = '{default: fpnew_pkg::DONT_CARE};
+    end
+  end
+
+  // Classification after rounding select by destination format
+  assign uf_after_round = fmt_uf_after_round[dst_fmt_q];
+  assign of_after_round = fmt_of_after_round[dst_fmt_q];
+
+  // -----------------
+  // Result selection
+  // -----------------
+  logic [DST_WIDTH-1:0] regular_result;
+  fpnew_pkg::status_t   regular_status;
+
+  // Assemble regular result
+  assign regular_result    = fmt_result[dst_fmt_q];
+  assign regular_status.NV = 1'b0; // only valid cases are handled in regular path
+  assign regular_status.DZ = 1'b0; // no divisions
+  assign regular_status.OF = of_before_round | of_after_round;   // rounding can introduce overflow
+  assign regular_status.UF = uf_after_round & regular_status.NX; // only inexact results raise UF
+  assign regular_status.NX = (| round_sticky_bits) | of_before_round | of_after_round;
+
+  // Final results for output pipeline
+  logic [DST_WIDTH-1:0] result_d;
+  fpnew_pkg::status_t   status_d;
+
+  // Select output depending on special case detection
+  assign result_d = result_is_special ? special_result : (result_is_accumulator ? operand_d_q : regular_result);
+  assign status_d = result_is_special ? special_status : (result_is_accumulator ? fpnew_pkg::status_t'(0) : regular_status);
+
 
 endmodule

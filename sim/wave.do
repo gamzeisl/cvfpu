@@ -110,6 +110,16 @@ add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/accumulator_shifted
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/shifted_acc
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/sum_product_accumulator
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/sum_prod_acc
+add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/lzc_zeroes
+add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/norm_shamt
+add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/normalized_exponent
+add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/sum_magnitude
+add wave -noupdate -radix binary /tb_fpnew_sdotp_scale_multi/dut/sum_shifted
+add wave -noupdate -radix binary /tb_fpnew_sdotp_scale_multi/dut/final_mantissa
+add wave -noupdate -radix binary /tb_fpnew_sdotp_scale_multi/dut/sum_sticky_bits
+add wave -noupdate -radix decimal /tb_fpnew_sdotp_scale_multi/dut/final_exponent
+add wave -noupdate -radix binary /tb_fpnew_sdotp_scale_multi/dut/result_d
+add wave -noupdate -radix binary /tb_fpnew_sdotp_scale_multi/expected_result
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/gen_special_results[0]/active_format/special_cases/special_res}
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/active_dst_format/trimmed_dst_ops}
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/active_dst_format/dst_ops_is_boxed}
