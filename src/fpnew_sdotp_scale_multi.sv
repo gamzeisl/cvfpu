@@ -80,9 +80,9 @@ module fpnew_sdotp_scale_multi #(
   localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
   // Destination precision bits 'p_dst' include the implicit bit
   localparam int unsigned DST_PRECISION_BITS = SUPER_DST_MAN_BITS + 1;
-  // TODO: The leading-zero counter operates on LZC_SUM_WIDTH bits
   localparam int unsigned LOWER_SUM_WIDTH  = 94;
-  localparam int unsigned LZC_RESULT_WIDTH = $clog2(LOWER_SUM_WIDTH);
+  localparam int unsigned LZC_SUM_WIDTH    = LOWER_SUM_WIDTH + DST_PRECISION_BITS;
+  localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH);
 
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
@@ -524,12 +524,16 @@ module fpnew_sdotp_scale_multi #(
   // Accumulator shift data path
   // -----------------------------
   logic result_is_accumulator;
+  logic accumulator_is_right_shifted;
 
-  logic signed [8:0] accumulator_shift_amount;
+  logic signed [8:0] accumulator_shift_amount, accumulator_right_shift_amount;
   logic signed [DST_EXP_WIDTH-1:0] exponent_d;
   logic [DST_PRECISION_BITS-1:0] mantissa_d;
   logic signed [DST_PRECISION_BITS :0] signed_mantissa_d;
+  logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining;
   logic signed [LOWER_SUM_WIDTH-1:0] accumulator_shifted, sum_product_accumulator;
+  logic accumulator_sticky;
+  logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended;
 
   // Zero-extend exponents into signed container - implicit width extension
   assign exponent_d = {1'b0, operand_d.exponent};
@@ -544,6 +548,10 @@ module fpnew_sdotp_scale_multi #(
 
   always_comb begin : accumulator_shift
     result_is_accumulator = 1'b0;
+    accumulator_is_right_shifted = 1'b0;
+    accumulator_right_shift_amount = '0;
+    accumulator_remaining = '0;
+    accumulator_sticky = 1'b0;
     if (accumulator_shift_amount > MAX_ACC_SHIFT_AMOUNT) begin
       // SoP is too small to change the accumulator, result is the accumulator
       accumulator_shifted = '0;
@@ -551,17 +559,27 @@ module fpnew_sdotp_scale_multi #(
     end else if (accumulator_shift_amount >= 0) begin
       accumulator_shifted = signed'(signed_mantissa_d) <<< accumulator_shift_amount;
     end else begin
-      // TODO: Rounding bits
-      accumulator_shifted = signed'(signed_mantissa_d) >>> -accumulator_shift_amount;
+      accumulator_is_right_shifted = 1'b1;
+      accumulator_right_shift_amount = -accumulator_shift_amount;
+      accumulator_shifted = signed'(signed_mantissa_d) >>> accumulator_right_shift_amount;
+      if (accumulator_right_shift_amount > DST_PRECISION_BITS) begin
+        result_is_accumulator = (sum_product == '0) ? 1'b1 : 1'b0;
+        accumulator_remaining = signed'(signed_mantissa_d) >>> (accumulator_right_shift_amount - DST_PRECISION_BITS);
+        accumulator_sticky = |(signed'(signed_mantissa_d) & ((1 << (accumulator_right_shift_amount - DST_PRECISION_BITS)) - 1));
+      end else begin
+        accumulator_remaining = signed'(signed_mantissa_d) << (DST_PRECISION_BITS - accumulator_right_shift_amount);
+        accumulator_sticky = 1'b0;
+      end
     end
   end
 
   assign sum_product_accumulator = sum_product + accumulator_shifted;
+  assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};
 
   // --------------
   // Normalization
   // --------------
-  logic        [LOWER_SUM_WIDTH-1:0]  sum_magnitude, sum_shifted;
+  logic        [LZC_SUM_WIDTH-1:0]  sum_magnitude, sum_shifted;
   logic        [LZC_RESULT_WIDTH-1:0] leading_zero_count;     // the number of leading zeroes
   logic signed [LZC_RESULT_WIDTH:0]   leading_zero_count_sgn; // signed leading-zero count
   logic                               lzc_zeroes;             // in case only zeroes found
@@ -571,18 +589,28 @@ module fpnew_sdotp_scale_multi #(
 
   logic                                 final_sign;
   logic        [DST_PRECISION_BITS-1:0] final_mantissa;
-  logic        [LOWER_SUM_WIDTH-DST_PRECISION_BITS-1:0] sum_sticky_bits;
+  logic        [LZC_SUM_WIDTH-DST_PRECISION_BITS-1:0] sum_sticky_bits;
   logic                                 sticky_after_norm;
   logic signed [DST_EXP_WIDTH-1:0]      final_exponent;
 
   // Leading sign counter
   // If sum is negative, complement to feed into leading zero counter
-  assign final_sign    = sum_product_accumulator[LOWER_SUM_WIDTH-1];
-  assign sum_magnitude = final_sign ? -sum_product_accumulator : sum_product_accumulator;
+  assign final_sign    = sum_product_accumulator_extended[LZC_SUM_WIDTH-1];
+
+  always_comb begin : get_twos_complement
+    if (final_sign) begin
+      sum_magnitude = ~sum_product_accumulator_extended + 1;
+      if (accumulator_is_right_shifted && accumulator_right_shift_amount > DST_PRECISION_BITS && signed_mantissa_d != 0) begin
+        sum_magnitude = ~sum_product_accumulator_extended;
+      end
+    end else begin
+      sum_magnitude = sum_product_accumulator_extended;
+    end
+  end
 
   // Leading sign counter
   lzc #(
-    .WIDTH ( LOWER_SUM_WIDTH ),
+    .WIDTH ( LZC_SUM_WIDTH ),
     .MODE  ( 1               ) // MODE = 1 counts leading zeroes
   ) i_lzc (
     .in_i    ( sum_magnitude      ),
@@ -604,7 +632,7 @@ module fpnew_sdotp_scale_multi #(
   // LSB of final mantissa is the rounding bit
   assign {final_mantissa, sum_sticky_bits} = sum_shifted;
   assign final_exponent                    = normalized_exponent;
-  assign sticky_after_norm                 = |sum_sticky_bits;
+  assign sticky_after_norm                 = (|sum_sticky_bits) | accumulator_sticky;
 
   // ----------------------------
   // Rounding and classification
@@ -741,8 +769,8 @@ module fpnew_sdotp_scale_multi #(
   fpnew_pkg::status_t   status_d;
 
   // Select output depending on special case detection
-  assign result_d = result_is_special ? special_result : (result_is_accumulator ? operand_d_q : regular_result);
-  assign status_d = result_is_special ? special_status : (result_is_accumulator ? fpnew_pkg::status_t'(0) : regular_status);
+  assign result_d = result_is_special ? special_result : ((result_is_accumulator | sum_magnitude == '0) ? operand_d_q : regular_result);
+  assign status_d = result_is_special ? special_status : ((result_is_accumulator | sum_magnitude == '0) ? fpnew_pkg::status_t'(0) : regular_status);
 
 
 endmodule

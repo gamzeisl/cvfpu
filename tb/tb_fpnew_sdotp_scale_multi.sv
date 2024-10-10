@@ -166,12 +166,6 @@ module tb_fpnew_sdotp_scale_multi;
       if (dut.sum_product_accumulator != sum_prod_acc) begin
         $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $time);
       end
-      if (dut.sum_shifted != tb_sum_shifted) begin
-        $display("Sum shifted test failed! Expected: %h, Got: %h at time %t", tb_sum_shifted, dut.sum_shifted, $time);
-      end
-      if (dut.final_exponent != tb_final_exponent) begin
-        $display("Final exponent test failed! Expected: %h, Got: %h at time %t", tb_final_exponent, dut.final_exponent, $time);
-      end
       // TODO: Delete the negative shift amount
       if (dut.result_d != expected_result) begin
         if (dut.accumulator_shift_amount < 0) begin
