@@ -469,10 +469,6 @@ module fpnew_sdotp_scale_multi #(
   // Assemble result according to destination format
   assign special_result = fmt_special_result[dst_fmt_q];
 
-  // TEMPORARY: Assign special result to output
-  assign result_o = special_result;
-  assign out_valid_o = 1'b1;
-
   // ------------------
   // Product data path
   // ------------------
@@ -769,8 +765,10 @@ module fpnew_sdotp_scale_multi #(
   fpnew_pkg::status_t   status_d;
 
   // Select output depending on special case detection
-  assign result_d = result_is_special ? special_result : ((result_is_accumulator | sum_magnitude == '0) ? operand_d_q : regular_result);
-  assign status_d = result_is_special ? special_status : ((result_is_accumulator | sum_magnitude == '0) ? fpnew_pkg::status_t'(0) : regular_status);
+  // TODO: Add output pipeline
+  assign result_o = result_is_special ? special_result : ((result_is_accumulator | sum_magnitude == '0) ? operand_d_q : regular_result);
+  assign status_o = result_is_special ? special_status : ((result_is_accumulator | sum_magnitude == '0) ? fpnew_pkg::status_t'(0) : regular_status);
+  assign out_valid_o = 1'b1;
 
 
 endmodule
