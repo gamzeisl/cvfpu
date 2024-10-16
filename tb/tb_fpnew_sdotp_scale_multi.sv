@@ -1,4 +1,8 @@
 module tb_fpnew_sdotp_scale_multi;
+  // Simulation inputs
+  string stim_file = `STIM_FILE;
+  fpnew_pkg::fp_format_e SRC_FMT = (`SRC_FMT == "FP8") ? fpnew_pkg::FP8 : fpnew_pkg::FP8ALT;
+
   // Parameters for the module
   parameter fpnew_pkg::fmt_logic_t SrcDotpFpFmtConfig = 6'b000101; // Supported source formats (FP8, FP8ALT)
   parameter fpnew_pkg::fmt_logic_t DstDotpFpFmtConfig = 6'b100000; // Supported destination formats (FP32)
@@ -50,6 +54,11 @@ module tb_fpnew_sdotp_scale_multi;
   // File handle for reading input data
   integer file, r;
   string line;
+
+  // Test vector counter
+  int count;
+
+  // Expected results
   logic [31:0] expected_result;
   logic [93:0] sum_prod, shifted_acc, sum_prod_acc, tb_sum_shifted;
   logic  [8:0] shift_acc;
@@ -117,11 +126,13 @@ module tb_fpnew_sdotp_scale_multi;
     reset_dut();
 
     // Open the file with input data and expected result
-    file = $fopen("/scratch2/gislamoglu/mx_fp/test_data_special.csv", "r");
+    file = $fopen(stim_file, "r");
     if (file == 0) begin
       $display("Failed to open test data file");
       $finish;
     end
+
+    count = 1;
 
     // Read test vectors from the file, process each line
     while (!$feof(file)) begin
@@ -141,7 +152,7 @@ module tb_fpnew_sdotp_scale_multi;
 
       // Set remaining signals
       is_boxed_i = '1;
-      src_fmt_i = fpnew_pkg::FP8;
+      src_fmt_i = SRC_FMT;
       dst_fmt_i = fpnew_pkg::FP32;
       rnd_mode_i = fpnew_pkg::RNE;
       op_i = fpnew_pkg::SDOTP;
@@ -154,30 +165,31 @@ module tb_fpnew_sdotp_scale_multi;
       @(posedge clk_i);
       
       // Compare result with the expected result from Python
-      if (dut.sum_product != sum_prod) begin
-        $display("Sum product test failed! Expected: %h, Got: %h at time %t", sum_prod, dut.sum_product, $time);
-      end
-      if (dut.accumulator_shift_amount != shift_acc) begin
-        $display("Accumlator shift amount test failed! Expected: %h, Got: %h at time %t", shift_acc, dut.accumulator_shift_amount, $time);
-      end
-      if (dut.accumulator_shifted != shifted_acc) begin
-        $display("Shifted accumulator test failed! Expected: %h, Got: %h at time %t", shifted_acc, dut.accumulator_shifted, $time);
-      end
-      if (dut.sum_product_accumulator != sum_prod_acc) begin
-        $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $time);
-      end
-      // TODO: Delete the negative shift amount
-      if (dut.result_d != expected_result) begin
-        if (dut.accumulator_shift_amount < 0) begin
-          $display("Negative shift amount test failed! Expected: %h, Got: %h at time %t", expected_result, dut.result_d, $time);
-        end else begin
-          $display("Result test FAILED! Expected: %h, Got: %h at time %t", expected_result, dut.result_d, $time);
+      if (dut.result_is_special != 1'b1) begin
+        if (dut.sum_product != sum_prod) begin
+          $display("Sum product test failed! Expected: %h, Got: %h at time %t", sum_prod, dut.sum_product, $time);
+        end
+        if (dut.accumulator_shift_amount != shift_acc) begin
+          $display("Accumlator shift amount test failed! Expected: %h, Got: %h at time %t", shift_acc, dut.accumulator_shift_amount, $time);
+        end
+        if (dut.accumulator_shifted != shifted_acc) begin
+          $display("Shifted accumulator test failed! Expected: %h, Got: %h at time %t", shifted_acc, dut.accumulator_shifted, $time);
+        end
+        if (dut.result_is_accumulator != 1'b1 && dut.sum_product_accumulator != sum_prod_acc) begin
+          $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $time);
         end
       end
+
+      if (dut.result_d != expected_result) begin
+        $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", count, expected_result, dut.result_d, $time);
+      end
+
+      count++;
     end
 
     // Stop the simulation
     $fclose(file);
+    $display("Simulation finished, number of test vectors tested: %d", count-1);
     $stop;
   end
 endmodule
