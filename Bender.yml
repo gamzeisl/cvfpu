@@ -53,4 +53,7 @@ sources:
   - src/fpnew_top.sv
 
   - src/fpnew_sdotp_scale_multi.sv
-  - tb/tb_fpnew_sdotp_scale_multi.sv
+
+  - target: tb
+    files:
+      - tb/tb_fpnew_sdotp_scale_multi.sv

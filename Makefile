@@ -15,7 +15,7 @@ VENV_BIN=venv/bin/
 BENDER_VERSION = 0.28.1
 SIM_PATH   ?= sim/build
 
-BENDER_TARGETS =
+BENDER_TARGETS = -t tb
 
 target ?= tb_fpnew_sdotp_scale_multi
 
