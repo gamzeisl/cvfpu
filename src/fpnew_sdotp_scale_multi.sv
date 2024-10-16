@@ -88,7 +88,7 @@ module fpnew_sdotp_scale_multi #(
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
   localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
-  localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 1;
+  localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
   // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
   localparam int unsigned SHIFT_AMOUNT_WIDTH = 7;
   localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
