@@ -61,7 +61,7 @@ module tb_fpnew_sdotp_scale_multi;
   // Expected results
   logic [31:0] expected_result;
   logic [93:0] sum_prod, shifted_acc, sum_prod_acc, tb_sum_shifted;
-  logic  [8:0] shift_acc;
+  logic  [9:0] shift_acc;
   logic  [8:0] tb_final_exponent;
 
   // Instantiate the DUT (Device Under Test)

@@ -522,7 +522,7 @@ module fpnew_sdotp_scale_multi #(
   logic result_is_accumulator;
   logic accumulator_is_right_shifted;
 
-  logic signed [8:0] accumulator_shift_amount, accumulator_right_shift_amount;
+  logic signed [9:0] accumulator_shift_amount, accumulator_right_shift_amount;
   logic signed [DST_EXP_WIDTH-1:0] exponent_d;
   logic [DST_PRECISION_BITS-1:0] mantissa_d;
   logic signed [DST_PRECISION_BITS :0] signed_mantissa_d;
