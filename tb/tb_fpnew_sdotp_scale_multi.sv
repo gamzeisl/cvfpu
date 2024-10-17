@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+
 module tb_fpnew_sdotp_scale_multi;
   // Simulation inputs
   string stim_file = `STIM_FILE;
@@ -56,7 +58,7 @@ module tb_fpnew_sdotp_scale_multi;
   string line;
 
   // Test vector counter
-  int count;
+  int count, fail_count;
 
   // Expected results
   logic [31:0] expected_result;
@@ -104,7 +106,7 @@ module tb_fpnew_sdotp_scale_multi;
 
   // Clock generation
   initial begin
-    clk_i = 0;
+    clk_i = 1;
     forever #5 clk_i = ~clk_i;  // 10ns clock period
   end
 
@@ -122,8 +124,11 @@ module tb_fpnew_sdotp_scale_multi;
 
   // Test vector generator
   initial begin
+    $timeformat(-9, 1, " ns", 12);
+
     // Reset the DUT
     reset_dut();
+    @(posedge clk_i);
 
     // Open the file with input data and expected result
     file = $fopen(stim_file, "r");
@@ -133,9 +138,11 @@ module tb_fpnew_sdotp_scale_multi;
     end
 
     count = 1;
+    fail_count = 0;
 
     // Read test vectors from the file, process each line
     while (!$feof(file)) begin
+      @(posedge clk_i);
       // Read the test vectors from the file (single line)
       line = "";
       r = $fgets(line, file);
@@ -162,26 +169,27 @@ module tb_fpnew_sdotp_scale_multi;
 
       // Wait for the result
       wait (out_valid_o);
-      @(posedge clk_i);
+      #5;
       
       // Compare result with the expected result from Python
       if (dut.result_is_special != 1'b1) begin
-        if (dut.sum_product != sum_prod) begin
-          $display("Sum product test failed! Expected: %h, Got: %h at time %t", sum_prod, dut.sum_product, $time);
+        if (dut.sum_product !== sum_prod) begin
+          $display("Sum product test failed! Expected: %h, Got: %h at time %t", sum_prod, dut.sum_product, $realtime);
         end
-        if (dut.accumulator_shift_amount != shift_acc) begin
-          $display("Accumlator shift amount test failed! Expected: %h, Got: %h at time %t", shift_acc, dut.accumulator_shift_amount, $time);
+        if (dut.accumulator_shift_amount !== shift_acc) begin
+          $display("Accumlator shift amount test failed! Expected: %h, Got: %h at time %t", shift_acc, dut.accumulator_shift_amount, $realtime);
         end
-        if (dut.accumulator_shifted != shifted_acc) begin
-          $display("Shifted accumulator test failed! Expected: %h, Got: %h at time %t", shifted_acc, dut.accumulator_shifted, $time);
+        if (dut.accumulator_shifted !== shifted_acc) begin
+          $display("Shifted accumulator test failed! Expected: %h, Got: %h at time %t", shifted_acc, dut.accumulator_shifted, $realtime);
         end
-        if (dut.result_is_accumulator != 1'b1 && dut.sum_product_accumulator != sum_prod_acc) begin
-          $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $time);
+        if (dut.result_is_accumulator !== 1'b1 && dut.sum_product_accumulator !== sum_prod_acc) begin
+          $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $realtime);
         end
       end
 
-      if (dut.result_d != expected_result) begin
-        $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", count, expected_result, dut.result_d, $time);
+      if (result_o !== expected_result) begin
+        $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", count, expected_result, result_o, $realtime);
+        fail_count++;
       end
 
       count++;
@@ -189,7 +197,7 @@ module tb_fpnew_sdotp_scale_multi;
 
     // Stop the simulation
     $fclose(file);
-    $display("Simulation finished, number of test vectors tested: %d", count-1);
+    $display("Simulation finished, number of test vectors tested: %d, failed: %d", count-1, fail_count);
     $stop;
   end
 endmodule

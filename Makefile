@@ -20,7 +20,8 @@ BENDER_TARGETS = -t tb
 target ?= tb_fpnew_sdotp_scale_multi
 
 src_fmt   ?= FP8
-stim_file ?= testvectors/test_data_${src_fmt}_100.csv
+num_vectors ?= 100
+stim_file ?= testvectors/test_data_${src_fmt}_${num_vectors}.csv
 
 vlog_defs += -DSTIM_FILE="\"$(STIM_DIR)/$(stim_file)\"" -DSRC_FMT="\"$(src_fmt)\""
 
