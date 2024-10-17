@@ -580,6 +580,8 @@ module fpnew_sdotp_scale_multi #(
   logic signed [LZC_RESULT_WIDTH:0]   leading_zero_count_sgn; // signed leading-zero count
   logic                               lzc_zeroes;             // in case only zeroes found
 
+  logic signed [DST_EXP_WIDTH-1:0]      final_tentative_exponent;
+
   logic        [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt; // Normalization shift amount
   logic signed [DST_EXP_WIDTH-1:0]      normalized_exponent;
 
@@ -616,14 +618,25 @@ module fpnew_sdotp_scale_multi #(
 
   assign leading_zero_count_sgn = signed'({1'b0, leading_zero_count});
 
-  // Shift the sum to normalize it
-  assign norm_shamt = leading_zero_count_sgn + 1;
-  assign sum_shifted = sum_magnitude << norm_shamt;
-
   // Calculate the biased exponent (excess-127 form)
   // The exponent-major is -scaled_anchor
   // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent
-  assign normalized_exponent = signed'(127) - (signed'(34)-signed'(operand_c_q)) + (signed'(94) - leading_zero_count_sgn - 1);
+  assign final_tentative_exponent = signed'(127) - (signed'(34)-signed'(operand_c_q)) + (signed'(94) - leading_zero_count_sgn - 1);
+
+  // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
+  always_comb begin : norm_shift_amount
+    // Subnormals
+    if (final_tentative_exponent <= 0) begin
+      norm_shamt          = leading_zero_count_sgn + final_tentative_exponent;
+      normalized_exponent = '0; // subnormals encoded as 0
+    end else begin
+      norm_shamt          = leading_zero_count_sgn + 1;
+      normalized_exponent = final_tentative_exponent;
+    end
+  end
+
+  // Shift the sum to normalize it
+  assign sum_shifted = sum_magnitude << norm_shamt;
 
   // LSB of final mantissa is the rounding bit
   assign {final_mantissa, sum_sticky_bits} = sum_shifted;
