@@ -362,28 +362,28 @@ module fpnew_sdotp_scale_multi #(
 
   // Single generate block for all conditions
   generate
-      for (genvar i = 0; i < VECTOR_SIZE; i = i + 1) begin : gen_conditions
-          // Check if any operand is infinite
-          assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
-          
-          // Check if any operand is NaN
-          assign operand_nan_conditions[i] = info_a[i].is_nan || info_b[i].is_nan;
-          
-          // Check for signalling NaN
-          assign signalling_nan_conditions[i] = info_a[i].is_signalling || info_b[i].is_signalling;
-          
-          // Check for produced NaN (0 * inf or inf * 0)
-          assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) || 
-                                     (info_b[i].is_inf && info_a[i].is_zero);
-          
-          // Check for positive infinity (inf with same sign)
-          assign pos_inf_conditions[i] = (info_a[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign)) ||
-                                         (info_b[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign));
-          
-          // Check for negative infinity (inf with opposite sign)
-          assign neg_inf_conditions[i] = (info_a[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign)) ||
-                                         (info_b[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign));
-      end
+    for (genvar i = 0; i < VECTOR_SIZE; i = i + 1) begin : gen_conditions
+      // Check if any operand is infinite
+      assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
+      
+      // Check if any operand is NaN
+      assign operand_nan_conditions[i] = info_a[i].is_nan || info_b[i].is_nan;
+      
+      // Check for signalling NaN
+      assign signalling_nan_conditions[i] = info_a[i].is_signalling || info_b[i].is_signalling;
+      
+      // Check for produced NaN (0 * inf or inf * 0)
+      assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) || 
+                                  (info_b[i].is_inf && info_a[i].is_zero);
+      
+      // Check for positive infinity (inf with same sign)
+      assign pos_inf_conditions[i] = (info_a[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign)) ||
+                                      (info_b[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign));
+      
+      // Check for negative infinity (inf with opposite sign)
+      assign neg_inf_conditions[i] = (info_a[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign)) ||
+                                      (info_b[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign));
+    end
   endgenerate
 
   // Reduction for final results
@@ -606,6 +606,7 @@ module fpnew_sdotp_scale_multi #(
     end
   end
 
+  // TODO: Check if the lzc_zeroes==1
   // Leading sign counter
   lzc #(
     .WIDTH ( LZC_SUM_WIDTH ),
