@@ -52,7 +52,9 @@ sources:
   - src/lfsr_sr.sv
   - src/fpnew_top.sv
 
+  - src/fpnew_sdotp_scale_multi_modules.sv
   - src/fpnew_sdotp_scale_multi.sv
+  - src/fpnew_sdotp_scale_multi_top.sv
 
   - target: tb
     files:

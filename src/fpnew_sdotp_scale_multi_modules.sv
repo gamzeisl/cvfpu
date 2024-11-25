@@ -1,0 +1,867 @@
+// Copyright 2019-2024 ETH Zurich and University of Bologna.
+//
+// Copyright and related rights are licensed under the Solderpad Hardware
+// License, Version 0.51 (the "License"); you may not use this file except in
+// compliance with the License. You may obtain a copy of the License at
+// http://solderpad.org/licenses/SHL-0.51. Unless required by applicable law
+// or agreed to in writing, software, hardware and materials distributed under
+// this License is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+// CONDITIONS OF ANY KIND, either express or implied. See the License for the
+// specific language governing permissions and limitations under the License.
+//
+// SPDX-License-Identifier: SHL-0.51
+
+// Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
+
+`include "common_cells/registers.svh"
+
+package fpnew_sdotp_scale_multi_pkg;
+  // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT |
+  parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 6'b000101; // Supported source formats (FP8, FP8ALT)
+  parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 6'b100000; // Supported destination formats (FP32)
+  parameter int unsigned             NumPipeRegs = 0;
+  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE;
+  parameter type                     TagType     = logic;
+  parameter type                     AuxType     = logic;
+
+  // Do not change
+  localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
+  localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
+  localparam int unsigned SCALE_WIDTH = 8;
+  localparam int unsigned VECTOR_SIZE = 4;
+  localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
+  // ----------
+  // Constants
+  // ----------
+  // The super-format that can hold all formats
+  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT = fpnew_pkg::super_format(SrcDotpFpFmtConfig);
+  localparam fpnew_pkg::fp_encoding_t SUPER_DST_FORMAT = fpnew_pkg::super_format(DstDotpFpFmtConfig);
+
+  localparam int unsigned SUPER_EXP_BITS = SUPER_FORMAT.exp_bits;
+  localparam int unsigned SUPER_MAN_BITS = SUPER_FORMAT.man_bits;
+  localparam int unsigned SUPER_DST_EXP_BITS = SUPER_DST_FORMAT.exp_bits;
+  localparam int unsigned SUPER_DST_MAN_BITS = SUPER_DST_FORMAT.man_bits;
+
+  // Precision bits 'p' include the implicit bit
+  localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
+  // Destination precision bits 'p_dst' include the implicit bit
+  localparam int unsigned DST_PRECISION_BITS = SUPER_DST_MAN_BITS + 1;
+  localparam int unsigned LOWER_SUM_WIDTH  = 94;
+  localparam int unsigned LZC_SUM_WIDTH    = LOWER_SUM_WIDTH + DST_PRECISION_BITS;
+  localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH);
+
+  // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
+  // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
+  // In most reasonable FP formats the internal exponent will be wider than the LZC result.
+  localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
+  localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
+  // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
+  localparam int unsigned SHIFT_AMOUNT_WIDTH = 7;
+  localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
+
+  // Algorithm constants
+  localparam int signed MAX_ACC_SHIFT_AMOUNT = 69;
+
+  // Pipelines
+  localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
+                            ? NumPipeRegs
+                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                               ? ((NumPipeRegs + 1) / 3) // Second to get distributed regs
+                               : 0); // no regs here otherwise
+  localparam NUM_MID_REGS = PipeConfig == fpnew_pkg::INSIDE
+                          ? NumPipeRegs
+                          : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                             ? ((NumPipeRegs + 2) / 3) // First to get distributed regs
+                             : 0); // no regs here otherwise
+  localparam NUM_OUT_REGS = PipeConfig == fpnew_pkg::AFTER
+                            ? NumPipeRegs
+                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
+                               ? (NumPipeRegs / 3) // Last to get distributed regs
+                               : 0); // no regs here otherwise
+
+  // ----------------
+  // Type definition
+  // ----------------
+  typedef struct packed {
+    logic                      sign;
+    logic [SUPER_EXP_BITS-1:0] exponent;
+    logic [SUPER_MAN_BITS-1:0] mantissa;
+  } fp_src_t;
+  typedef struct packed {
+    logic                          sign;
+    logic [SUPER_DST_EXP_BITS-1:0] exponent;
+    logic [SUPER_DST_MAN_BITS-1:0] mantissa;
+  } fp_dst_t;
+endpackage
+
+module classifier 
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input logic [7:0][SRC_WIDTH-1:0] operands_post_inp_pipe,
+  input logic [SCALE_WIDTH-1:0] operand_c_q,
+  input logic [DST_WIDTH-1:0] operand_d_q,
+  input logic [0:NUM_INP_REGS][NUM_FORMATS-1:0][9:0] inp_pipe_is_boxed_q,
+  input fpnew_pkg::fp_format_e src_fmt_q,
+  input fpnew_pkg::fp_format_e dst_fmt_q,
+  input logic [0:NUM_INP_REGS] inp_pipe_op_mod_q,
+  // Output signals
+  output fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_a,
+  output fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_b,
+  output fpnew_pkg::fp_info_t info_c,
+  output fpnew_pkg::fp_info_t info_d,
+  output fp_src_t [VECTOR_SIZE-1:0] operands_a,
+  output fp_src_t [VECTOR_SIZE-1:0] operands_b,
+  output logic [SCALE_WIDTH-1:0] operand_c,
+  output fp_dst_t operand_d
+);
+
+  // -----------------
+  // Source operands
+  // -----------------
+
+  logic        [NUM_FORMATS-1:0][7:0]                     fmt_sign;
+  logic signed [NUM_FORMATS-1:0][7:0][SUPER_EXP_BITS-1:0] fmt_exponent;
+  logic        [NUM_FORMATS-1:0][7:0][SUPER_MAN_BITS-1:0] fmt_mantissa;
+
+  fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][9:0] info_q;
+
+  // FP Input initialization (Src)
+  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_src_init_inputs
+    // Set up some constants
+    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+
+    if (SrcDotpFpFmtConfig[fmt]) begin : active_src_format
+      logic [7:0][FP_WIDTH-1:0] trimmed_ops;
+
+      // Classify input
+      fpnew_classifier #(
+        .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
+        .NumOperands ( 8                           )
+      ) i_fpnew_classifier (
+        .operands_i  ( trimmed_ops                                 ),
+        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][7:0] ),
+        .info_o      ( info_q[fmt][7:0]                            )
+      );
+      for (genvar op = 0; op < 8; op++) begin : gen_operands
+        assign trimmed_ops[op]       = operands_post_inp_pipe[op][FP_WIDTH-1:0];
+        assign fmt_sign[fmt][op]     = operands_post_inp_pipe[op][FP_WIDTH-1];
+        assign fmt_exponent[fmt][op] = signed'({1'b0, operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS]});
+        assign fmt_mantissa[fmt][op] = {info_q[fmt][op].is_normal, operands_post_inp_pipe[op][MAN_BITS-1:0]} <<
+                                       (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
+      end
+    end else begin : inactive_src_format
+      assign info_q[fmt][7:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign fmt_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
+      assign fmt_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign fmt_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+    end
+  end
+
+  // ----------------------------
+  // Destination operand
+  // ----------------------------
+  logic        [NUM_FORMATS-1:0]                         fmt_dst_sign;
+  logic signed [NUM_FORMATS-1:0][SUPER_DST_EXP_BITS-1:0] fmt_dst_exponent;
+  logic        [NUM_FORMATS-1:0][SUPER_DST_MAN_BITS-1:0] fmt_dst_mantissa;
+
+  // FP Input initialization (Src)
+  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_dst_init_inputs
+    // Set up some constants
+    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+
+    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+      logic [FP_WIDTH-1:0] trimmed_dst_ops;
+      logic                dst_ops_is_boxed;
+
+      assign dst_ops_is_boxed = inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][9];
+
+      // Classify input
+      fpnew_classifier #(
+        .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
+        .NumOperands ( 1                            )
+      ) i_fpnew_classifier (
+        .operands_i  ( trimmed_dst_ops  ),
+        .is_boxed_i  ( dst_ops_is_boxed ),
+        .info_o      ( info_q[fmt][9]   )
+      );
+      assign trimmed_dst_ops          = operand_d_q[FP_WIDTH-1:0];
+      assign fmt_dst_sign[fmt]        = operand_d_q[FP_WIDTH-1];
+      assign fmt_dst_exponent[fmt]    = signed'({1'b0, operand_d_q[MAN_BITS+:EXP_BITS]});
+      assign fmt_dst_mantissa[fmt]    = {info_q[fmt][9].is_normal, operand_d_q[MAN_BITS-1:0]}
+                                         << (SUPER_DST_MAN_BITS - MAN_BITS);
+    end else begin : inactive_dst_format
+      assign info_q[fmt][9]        = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign fmt_dst_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
+      assign fmt_dst_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign fmt_dst_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+    end
+  end
+
+  // -------------------
+  // TODO: Scale operand (can be nan)
+  // -------------------
+
+
+  // -------------------------------------------
+  // Operation selection and operand adjustment
+  // -------------------------------------------
+
+  // | \c op_q  | \c op_mod_q | Operation Adjustment
+  // |:--------:|:-----------:|---------------------
+  // | SDOTPS    | \c 0       | SDOTPS:  none
+  // | SDOTPS    | \c 1       | SDOTPSN: Invert the sign of the product (accumulator - dotp)
+  // | *others*  | \c -       | *invalid*
+  // \note \c op_mod_q always inverts the sign of the addend.
+  always_comb begin : op_select
+    // Default assignments - packing-order-agnostic
+    for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_default_assignments
+      operands_a[i] = {fmt_sign[src_fmt_q][i], fmt_exponent[src_fmt_q][i], fmt_mantissa[src_fmt_q][i]};
+      operands_b[i] = {fmt_sign[src_fmt_q][i+VECTOR_SIZE], fmt_exponent[src_fmt_q][i+VECTOR_SIZE], fmt_mantissa[src_fmt_q][i+VECTOR_SIZE]};
+      info_a[i]     = info_q[src_fmt_q][i];
+      info_b[i]     = info_q[src_fmt_q][i+VECTOR_SIZE];
+    end
+    operand_c = operand_c_q;
+    operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
+    info_c    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
+    info_d    = info_q[dst_fmt_q][9];
+
+    // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
+    for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_op_mod_q
+      operands_a[i].sign = operands_a[i].sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
+    end
+  end
+endmodule
+
+module special_cases 
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  fp_src_t [VECTOR_SIZE-1:0]   operands_a,
+  input  fp_src_t [VECTOR_SIZE-1:0]   operands_b,
+  input  logic [SCALE_WIDTH-1:0]      operand_c,
+  input  fp_dst_t        operand_d,
+  input  fpnew_pkg::fp_info_t [3:0]   info_a,
+  input  fpnew_pkg::fp_info_t [3:0]   info_b,
+  input  fpnew_pkg::fp_info_t         info_c,
+  input  fpnew_pkg::fp_info_t         info_d,
+  input fpnew_pkg::fp_format_e        src_fmt_q,
+  input fpnew_pkg::fp_format_e        dst_fmt_q,
+  // Output signals: special_result, special_status, result_is_special
+  output logic [DST_WIDTH-1:0]        special_result,
+  output fpnew_pkg::status_t          special_status,
+  output logic                        result_is_special
+);
+
+  // ---------------------
+  // Input classification
+  // ---------------------
+  logic any_operand_inf;
+  logic any_operand_nan;
+  logic signalling_nan;
+  logic any_produced_nan;
+  logic any_pos_inf;
+  logic any_neg_inf;
+
+  // Intermediate signals for each condition
+  logic [VECTOR_SIZE-1:0] operand_inf_conditions;
+  logic [VECTOR_SIZE-1:0] operand_nan_conditions;
+  logic [VECTOR_SIZE-1:0] signalling_nan_conditions;
+  logic [VECTOR_SIZE-1:0] nan_conditions;
+  logic [VECTOR_SIZE-1:0] pos_inf_conditions;
+  logic [VECTOR_SIZE-1:0] neg_inf_conditions;
+
+  // Single generate block for all conditions
+  generate
+      for (genvar i = 0; i < VECTOR_SIZE; i = i + 1) begin : gen_conditions
+          // Check if any operand is infinite
+          assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
+          
+          // Check if any operand is NaN
+          assign operand_nan_conditions[i] = info_a[i].is_nan || info_b[i].is_nan;
+          
+          // Check for signalling NaN
+          assign signalling_nan_conditions[i] = info_a[i].is_signalling || info_b[i].is_signalling;
+          
+          // Check for produced NaN (0 * inf or inf * 0)
+          assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) || 
+                                     (info_b[i].is_inf && info_a[i].is_zero);
+          
+          // Check for positive infinity (inf with same sign)
+          assign pos_inf_conditions[i] = (info_a[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign)) ||
+                                         (info_b[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign));
+          
+          // Check for negative infinity (inf with opposite sign)
+          assign neg_inf_conditions[i] = (info_a[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign)) ||
+                                         (info_b[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign));
+      end
+  endgenerate
+
+  // Reduction for final results
+  assign any_operand_inf = |operand_inf_conditions || info_d.is_inf;
+  assign any_operand_nan = |operand_nan_conditions || info_c.is_nan || info_d.is_nan;
+  assign signalling_nan  = |signalling_nan_conditions || info_c.is_signalling || info_d.is_signalling;
+  assign any_produced_nan = |nan_conditions;
+  assign any_pos_inf = |pos_inf_conditions || (info_d.is_inf && ~operand_d.sign);
+  assign any_neg_inf = |neg_inf_conditions || (info_d.is_inf && operand_d.sign);
+
+  // ----------------------
+  // Special case handling
+  // ----------------------
+  logic               [NUM_FORMATS-1:0][DST_WIDTH-1:0] fmt_special_result;
+  fpnew_pkg::status_t [NUM_FORMATS-1:0]                fmt_special_status;
+  logic               [NUM_FORMATS-1:0]                fmt_result_is_special;
+
+  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_special_results
+    // Set up some constants
+    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+
+    localparam logic [EXP_BITS-1:0] QNAN_EXPONENT = '1;
+    localparam logic [MAN_BITS-1:0] QNAN_MANTISSA = 2**(MAN_BITS-1);
+    localparam logic [MAN_BITS-1:0] ZERO_MANTISSA = '0;
+
+    if (DstDotpFpFmtConfig[fmt]) begin : active_format
+      always_comb begin : special_cases
+        logic [FP_WIDTH-1:0] special_res;
+
+        // Default assignment
+        special_res                = {1'b0, QNAN_EXPONENT, QNAN_MANTISSA}; // qNaN
+        fmt_special_status[fmt]    = '0;
+        fmt_result_is_special[fmt] = 1'b0;
+
+        // Handle potentially mixed nan & infinity input => important for the case where infinity and
+        // zero are multiplied and added to a qNaN.
+        // RISC-V mandates raising the NV exception in these cases:
+        // (inf * 0) + c or (0 * inf) + c INVALID, no matter c (even quiet NaNs)
+        if (any_produced_nan) begin
+          fmt_result_is_special[fmt] = 1'b1; // bypass OP, output is the canonical qNaN
+          fmt_special_status[fmt].NV = 1'b1; // invalid operation
+        // NaN Inputs cause canonical quiet NaN at the output and maybe invalid OP
+        end else if (any_operand_nan) begin
+          fmt_result_is_special[fmt] = 1'b1;           // bypass OP, output is the canonical qNaN
+          fmt_special_status[fmt].NV = signalling_nan; // raise the invalid operation flag if signalling
+        // Special cases involving infinity
+        end else if (any_operand_inf) begin
+          fmt_result_is_special[fmt] = 1'b1; // bypass OP
+          // Effective addition of opposite infinities (±inf - ±inf) is invalid!
+          if (any_pos_inf && any_neg_inf) begin
+            fmt_special_status[fmt].NV = 1'b1; // invalid operation
+          // Handle cases where output will be inf because of inf product input
+          end else if (any_pos_inf) begin
+            // Result is infinity with the positive sign
+            special_res = {1'b0, QNAN_EXPONENT, ZERO_MANTISSA};
+          // Handle cases where the second product is inf
+          end else if (any_neg_inf) begin
+            // Result is infinity with the negative sign
+            special_res = {1'b1, QNAN_EXPONENT, ZERO_MANTISSA};
+          end
+        end
+        // Initialize special result with ones (NaN-box)
+        fmt_special_result[fmt]               = '1;
+        fmt_special_result[fmt][FP_WIDTH-1:0] = special_res;
+      end
+    end else begin : inactive_format
+      assign fmt_special_result[fmt] = '{default: fpnew_pkg::DONT_CARE};
+      assign fmt_special_status[fmt] = '0;
+      assign fmt_result_is_special[fmt] = 1'b0;
+    end
+  end
+
+  // Detect special case from source format
+  assign result_is_special = fmt_result_is_special[dst_fmt_q];
+  // Signalling input NaNs raise invalid flag, otherwise no flags set
+  assign special_status = fmt_special_status[dst_fmt_q];
+  // Assemble result according to destination format
+  assign special_result = fmt_special_result[dst_fmt_q];
+endmodule
+
+module multiplier
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  fp_src_t [VECTOR_SIZE-1:0] operands_a,
+  input  fp_src_t [VECTOR_SIZE-1:0] operands_b,
+  input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_a,
+  input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_b,
+  output logic [VECTOR_SIZE-1:0][2*PRECISION_BITS :0] product_signed
+);
+  // ------------------
+  // Product data path
+  // ------------------
+  logic [VECTOR_SIZE-1:0][  PRECISION_BITS-1:0] mantissa_a, mantissa_b;
+  logic [VECTOR_SIZE-1:0][2*PRECISION_BITS-1:0] product;  // the p*p product is 2p-bit wide
+
+  // Add implicit bits to mantissae
+  for (genvar i = 0; i < VECTOR_SIZE; i++) begin : gen_mantissa
+    assign mantissa_a[i] = {info_a[i].is_normal, operands_a[i].mantissa};
+    assign mantissa_b[i] = {info_b[i].is_normal, operands_b[i].mantissa};
+    assign product[i]    = mantissa_a[i] * mantissa_b[i];
+    assign product_signed[i] = (operands_a[i].sign ^ operands_b[i].sign) ? -product[i] : product[i];
+  end
+endmodule
+
+module shifter
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  fp_src_t [VECTOR_SIZE-1:0] operands_a,
+  input  fp_src_t [VECTOR_SIZE-1:0] operands_b,
+  input  logic [VECTOR_SIZE-1:0][2*PRECISION_BITS :0] product_signed,
+  input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_a,
+  input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_b,
+  input  fpnew_pkg::fp_format_e src_fmt_q,
+  output logic signed [VECTOR_SIZE-1:0][69-1:0] shifted_product,
+  output logic [VECTOR_SIZE-1:0][5:0] shift_amount
+);
+  // ------------------
+  // Shift data path
+  // ------------------
+  logic signed [VECTOR_SIZE-1:0][EXP_WIDTH-1:0] exponent_product;
+
+  // Calculate the non-biased exponent of the product
+  for (genvar i = 0; i < VECTOR_SIZE; i++) begin : gen_exponent_adjustment
+    assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
+                                + operands_b[i].exponent + info_b[i].is_subnormal 
+                                - 2*signed'(fpnew_pkg::bias(src_fmt_q));
+    // Right shift the significand by anchor point - exponent
+    // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
+    // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
+    assign shift_amount[i] = 58 - (34 - exponent_product[i] - 4);
+    assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
+  end
+endmodule
+
+module adder
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic signed [VECTOR_SIZE-1:0][69-1:0] shifted_product,
+  output logic signed [LOWER_SUM_WIDTH-1:0] sum_product
+);
+  // ------------------
+  // Adder data path
+  // ------------------
+  // Sum the products
+  always_comb begin : sum_products
+    sum_product = '0;
+    for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_sum_products
+      sum_product += signed'(shifted_product[i]);
+    end
+  end
+endmodule
+
+module accumulator_shift
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic signed [LOWER_SUM_WIDTH-1:0] sum_product,
+  input logic [SCALE_WIDTH-1:0] operand_c,
+  input  fp_dst_t operand_d,
+  input  fpnew_pkg::fp_info_t info_d,
+  input fpnew_pkg::fp_format_e dst_fmt_q,
+  output logic result_is_accumulator,
+  output logic accumulator_is_right_shifted,
+  output logic signed [9:0] accumulator_right_shift_amount,
+  output logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
+  output logic accumulator_sticky,
+  output logic signed [DST_PRECISION_BITS :0] signed_mantissa_d
+);
+  
+  // -----------------------------
+  // Accumulator shift data path
+  // -----------------------------
+
+  logic signed [9:0] accumulator_shift_amount;
+  logic signed [DST_EXP_WIDTH-1:0] exponent_d;
+  logic [DST_PRECISION_BITS-1:0] mantissa_d;
+  logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining;
+  logic signed [LOWER_SUM_WIDTH-1:0] accumulator_shifted, sum_product_accumulator;
+
+  // Zero-extend exponents into signed container - implicit width extension
+  assign exponent_d = {1'b0, operand_d.exponent};
+  assign mantissa_d = {info_d.is_normal, operand_d.mantissa};
+  assign signed_mantissa_d = operand_d.sign ? -mantissa_d : mantissa_d;
+
+  // Calculate the shift amount for the accumulator
+  // TODO: Check if scale comes signed or with bias
+  assign accumulator_shift_amount = signed'(34 - SUPER_DST_MAN_BITS) - signed'(operand_c)
+                                     + signed'(exponent_d + info_d.is_subnormal)
+                                     - signed'(fpnew_pkg::bias(dst_fmt_q));
+
+  always_comb begin : accumulator_shift
+    result_is_accumulator = 1'b0;
+    accumulator_is_right_shifted = 1'b0;
+    accumulator_right_shift_amount = '0;
+    accumulator_remaining = '0;
+    accumulator_sticky = 1'b0;
+    if (accumulator_shift_amount > MAX_ACC_SHIFT_AMOUNT) begin
+      // SoP is too small to change the accumulator, result is the accumulator
+      accumulator_shifted = '0;
+      result_is_accumulator = 1'b1;
+    end else if (accumulator_shift_amount >= 0) begin
+      accumulator_shifted = signed'(signed_mantissa_d) <<< accumulator_shift_amount;
+    end else begin
+      accumulator_is_right_shifted = 1'b1;
+      accumulator_right_shift_amount = -accumulator_shift_amount;
+      accumulator_shifted = signed'(signed_mantissa_d) >>> accumulator_right_shift_amount;
+      if (accumulator_right_shift_amount > DST_PRECISION_BITS) begin
+        result_is_accumulator = (sum_product == '0) ? 1'b1 : 1'b0;
+        accumulator_remaining = signed'(signed_mantissa_d) >>> (accumulator_right_shift_amount - DST_PRECISION_BITS);
+        accumulator_sticky = |(signed'(signed_mantissa_d) & ((1 << (accumulator_right_shift_amount - DST_PRECISION_BITS)) - 1));
+      end else begin
+        accumulator_remaining = signed'(signed_mantissa_d) << (DST_PRECISION_BITS - accumulator_right_shift_amount);
+        accumulator_sticky = 1'b0;
+      end
+    end
+  end
+
+  assign sum_product_accumulator = sum_product + accumulator_shifted;
+  assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};
+endmodule
+
+module twos_compl
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
+  input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
+  input  logic accumulator_is_right_shifted,
+  input  logic signed [9:0] accumulator_right_shift_amount,
+  input  logic final_sign,
+  // Output signals
+  output logic [LZC_SUM_WIDTH-1:0] sum_magnitude
+);
+  // ------------------
+  // Two's complement
+  // ------------------
+
+  always_comb begin : get_twos_complement
+    if (final_sign) begin
+      sum_magnitude = ~sum_product_accumulator_extended + 1;
+      if (accumulator_is_right_shifted && accumulator_right_shift_amount > DST_PRECISION_BITS && signed_mantissa_d != 0) begin
+        sum_magnitude = ~sum_product_accumulator_extended;
+      end
+    end else begin
+      sum_magnitude = sum_product_accumulator_extended;
+    end
+  end
+endmodule
+
+module twos_compl_2
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
+  input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
+  input  logic accumulator_is_right_shifted,
+  input  logic signed [9:0] accumulator_right_shift_amount,
+  input  logic final_sign,
+  // Output signals
+  output logic [LZC_SUM_WIDTH-1:0] sum_magnitude
+);
+  // ------------------
+  // Two's complement
+  // ------------------
+
+  logic [LZC_SUM_WIDTH-1:0] complemented_sum;
+
+  // Precompute complement to avoid redundant operations
+  assign complemented_sum = ~sum_product_accumulator_extended;
+
+  always_comb begin
+    if (final_sign) begin
+      // Apply two's complement or direct complement based on conditions
+      if (accumulator_is_right_shifted && 
+          accumulator_right_shift_amount > DST_PRECISION_BITS && 
+          signed_mantissa_d != 0) begin
+        sum_magnitude = complemented_sum;  // Direct complement
+      end else begin
+        sum_magnitude = complemented_sum + 1;  // Two's complement
+      end
+    end else begin
+      sum_magnitude = sum_product_accumulator_extended;  // No complement needed
+    end
+  end
+endmodule
+
+module norm_shift
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
+  input  logic [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt,
+  // Output signals
+  output logic [LZC_SUM_WIDTH-1:0] sum_shifted
+);
+  // ------------------
+  // Normalization shift
+  // ------------------
+
+    // Shift the sum to normalize it
+  assign sum_shifted = sum_magnitude << norm_shamt;
+endmodule
+
+module norm_barrel_shift
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
+  input  logic [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt,
+  // Output signals
+  output logic [LZC_SUM_WIDTH-1:0] sum_shifted
+);
+  // Intermediate signals for each stage of the barrel shifter
+  logic [LZC_SUM_WIDTH-1:0] stage [SHIFT_AMOUNT_WIDTH:0];
+  assign stage[0] = sum_magnitude;
+
+  // Generate each stage of the barrel shifter
+  generate
+    for (genvar i = 0; i < SHIFT_AMOUNT_WIDTH; i++) begin
+      assign stage[i+1] = norm_shamt[i] ? (stage[i] << (1 << i)) : stage[i];
+    end
+  endgenerate
+
+  // Final shifted output
+  assign sum_shifted = stage[SHIFT_AMOUNT_WIDTH];
+endmodule
+
+module normalizer
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
+  input  logic accumulator_is_right_shifted,
+  input  logic signed [9:0] accumulator_right_shift_amount,
+  input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
+  input  logic accumulator_sticky,
+  input  logic [SCALE_WIDTH-1:0] operand_c_q,
+  // Output signals
+  output logic final_sign,
+  output logic signed [DST_EXP_WIDTH-1:0] final_exponent,
+  output logic [DST_PRECISION_BITS-1:0] final_mantissa,
+  output logic sticky_after_norm,
+  output logic        [LZC_SUM_WIDTH-1:0]  sum_magnitude
+);
+
+  // --------------
+  // Normalization
+  // --------------
+  logic        [LZC_SUM_WIDTH-1:0]  sum_shifted;
+  logic        [LZC_RESULT_WIDTH-1:0] leading_zero_count;     // the number of leading zeroes
+  logic signed [LZC_RESULT_WIDTH:0]   leading_zero_count_sgn; // signed leading-zero count
+  logic                               lzc_zeroes;             // in case only zeroes found
+
+  logic signed [DST_EXP_WIDTH-1:0]      final_tentative_exponent;
+
+  logic        [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt; // Normalization shift amount
+  logic signed [DST_EXP_WIDTH-1:0]      normalized_exponent;
+
+  logic        [LZC_SUM_WIDTH-DST_PRECISION_BITS-1:0] sum_sticky_bits;
+
+  // Leading sign counter
+  // If sum is negative, complement to feed into leading zero counter
+  assign final_sign    = sum_product_accumulator_extended[LZC_SUM_WIDTH-1];
+
+  twos_compl_2 #(
+  ) i_twos_compl (
+    .sum_product_accumulator_extended ( sum_product_accumulator_extended ),
+    .final_sign                      ( final_sign                      ),
+    .signed_mantissa_d               ( signed_mantissa_d               ),
+    .accumulator_is_right_shifted    ( accumulator_is_right_shifted    ),
+    .accumulator_right_shift_amount  ( accumulator_right_shift_amount  ),
+    .sum_magnitude( sum_magnitude                  )
+  );
+
+  // Leading sign counter
+  lzc #(
+    .WIDTH ( LZC_SUM_WIDTH ),
+    .MODE  ( 1               ) // MODE = 1 counts leading zeroes
+  ) i_lzc (
+    .in_i    ( sum_magnitude      ),
+    .cnt_o   ( leading_zero_count ),
+    .empty_o ( lzc_zeroes         )
+  );
+
+  assign leading_zero_count_sgn = signed'({1'b0, leading_zero_count});
+
+  // Calculate the biased exponent (excess-127 form)
+  // The exponent-major is -scaled_anchor
+  // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent
+  assign final_tentative_exponent = signed'(127) - (signed'(34)-signed'(operand_c_q)) + (signed'(94) - leading_zero_count_sgn - 1);
+
+  // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
+  always_comb begin : norm_shift_amount
+    // Subnormals
+    if (final_tentative_exponent <= 0) begin
+      norm_shamt          = leading_zero_count_sgn + final_tentative_exponent;
+      normalized_exponent = '0; // subnormals encoded as 0
+    end else begin
+      norm_shamt          = leading_zero_count_sgn + 1;
+      normalized_exponent = final_tentative_exponent;
+    end
+  end
+
+  norm_barrel_shift #(
+  ) i_norm_barrel_shift (
+    .sum_shifted          ( sum_shifted          ),
+    .sum_magnitude        ( sum_magnitude        ),
+    .norm_shamt           ( norm_shamt           )
+  );
+
+  // LSB of final mantissa is the rounding bit
+  assign {final_mantissa, sum_sticky_bits} = sum_shifted;
+  assign final_exponent                    = normalized_exponent;
+  assign sticky_after_norm                 = (|sum_sticky_bits) | accumulator_sticky;
+endmodule
+
+module rounder
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic final_sign,
+  input  logic [DST_EXP_WIDTH-1:0] final_exponent,
+  input  logic [DST_PRECISION_BITS-1:0] final_mantissa,
+  input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
+  input  logic sticky_after_norm,
+  input fpnew_pkg::fp_format_e dst_fmt_q,
+  input fpnew_pkg::roundmode_e rnd_mode_q,
+  // Output signals
+  output logic [NUM_FORMATS-1:0][DST_WIDTH-1:0] fmt_result,
+  output logic [1:0] round_sticky_bits,
+  output logic of_before_round,
+  output logic of_after_round,
+  output logic uf_after_round
+);
+
+  // ----------------------------
+  // Rounding and classification
+  // ----------------------------
+  logic                                             pre_round_sign;
+  logic [SUPER_DST_EXP_BITS+SUPER_DST_MAN_BITS-1:0] pre_round_abs; // absolute value of result before rounding
+
+  logic uf_before_round; // underflow
+
+  logic [NUM_FORMATS-1:0][SUPER_DST_EXP_BITS+SUPER_DST_MAN_BITS-1:0] fmt_pre_round_abs; // per format
+  logic [NUM_FORMATS-1:0][1:0]                                       fmt_round_sticky_bits;
+
+  logic [NUM_FORMATS-1:0]                           fmt_of_after_round;
+  logic [NUM_FORMATS-1:0]                           fmt_uf_after_round;
+
+  logic                                             rounded_sign;
+  logic [SUPER_DST_EXP_BITS+SUPER_DST_MAN_BITS-1:0] rounded_abs; // absolute value of result after rounding
+  logic                                             result_zero;
+
+  // Classification before round. RISC-V mandates checking underflow AFTER rounding
+  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt_q))-1; // infinity exponent is all ones
+  assign uf_before_round = final_exponent == 0;               // exponent for subnormals capped to 0
+
+  // Pack exponent and mantissa into proper rounding form
+  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_res_assemble
+    // Set up some constants
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned ALL_EXTRA_BITS = fpnew_pkg::maximum(SUPER_DST_MAN_BITS-MAN_BITS+1+DST_PRECISION_BITS+PRECISION_BITS+2+1, 1);
+
+    logic [EXP_BITS-1:0] pre_round_exponent;
+    logic [MAN_BITS-1:0] pre_round_mantissa;
+
+    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+
+      assign pre_round_exponent = (of_before_round) ? 2**EXP_BITS-2 : final_exponent[EXP_BITS-1:0];
+      assign pre_round_mantissa = (of_before_round) ? '1 : final_mantissa[SUPER_DST_MAN_BITS-:MAN_BITS];
+      // Assemble result before rounding. In case of overflow, the largest normal value is set.
+      assign fmt_pre_round_abs[fmt] = {pre_round_exponent, pre_round_mantissa}; // 0-extend
+
+      // Round bit is after mantissa (1 in case of overflow for rounding)
+      assign fmt_round_sticky_bits[fmt][1] = final_mantissa[SUPER_DST_MAN_BITS-MAN_BITS] |
+                                             of_before_round;
+
+      // remaining bits in mantissa to sticky (1 in case of overflow for rounding)
+      if (MAN_BITS < SUPER_DST_MAN_BITS) begin : narrow_sticky
+        assign fmt_round_sticky_bits[fmt][0] = (| final_mantissa[SUPER_DST_MAN_BITS-MAN_BITS-1:0]) |
+                                               sticky_after_norm | of_before_round;
+      end else begin : normal_sticky
+        assign fmt_round_sticky_bits[fmt][0] = sticky_after_norm | of_before_round;
+      end
+    end else begin : inactive_format
+      assign fmt_pre_round_abs[fmt] = '{default: fpnew_pkg::DONT_CARE};
+      assign fmt_round_sticky_bits[fmt] = '{default: fpnew_pkg::DONT_CARE};
+    end
+  end
+
+  // Assemble result before rounding. In case of overflow, the largest normal value is set.
+  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt_q];
+
+  // In case of overflow, the round and sticky bits are set for proper rounding
+  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q];
+  // TODO: Check for zeros
+  // assign pre_round_sign     = (info_max_is_zero_q && (pre_round_abs == '0) && (| round_sticky_bits))
+  //                             ? final_sign_zero_q : final_sign_z;
+  assign pre_round_sign     = final_sign;
+
+  // Perform the rounding
+  fpnew_rounding #(
+    .AbsWidth     ( SUPER_DST_EXP_BITS + SUPER_DST_MAN_BITS )
+  ) i_fpnew_rounding (
+    .clk_i                      ( clk_i                    ),
+    .rst_ni                     ( rst_ni                   ),
+    .id_i                       ( '0                       ),
+    .abs_value_i                ( pre_round_abs            ),
+    .en_rsr_i                   ( 1'b0                     ),
+    .sign_i                     ( pre_round_sign           ),
+    .round_sticky_bits_i        ( round_sticky_bits        ),
+    .stochastic_rounding_bits_i ( '0                       ),
+    .rnd_mode_i                 ( rnd_mode_q               ),
+    .effective_subtraction_i    ( 1'b0  ), // TODO: Check if this is correct
+    .abs_rounded_o              ( rounded_abs              ),
+    .sign_o                     ( rounded_sign             ),
+    .exact_zero_o               ( result_zero              )
+  );
+
+
+  for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : gen_sign_inject
+    // Set up some constants
+    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+
+    if (DstDotpFpFmtConfig[fmt]) begin : active_dst_format
+      always_comb begin : post_process
+        // detect of / uf
+        fmt_uf_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '0; // denormal
+        fmt_of_after_round[fmt] = rounded_abs[EXP_BITS+MAN_BITS-1:MAN_BITS] == '1; // inf exp.
+
+        // Assemble regular result, nan box short ones.
+        fmt_result[fmt]               = '1;
+        fmt_result[fmt][FP_WIDTH-1:0] = {rounded_sign, rounded_abs[EXP_BITS+MAN_BITS-1:0]};
+      end
+    end else begin : inactive_format
+      assign fmt_uf_after_round[fmt] = fpnew_pkg::DONT_CARE;
+      assign fmt_of_after_round[fmt] = fpnew_pkg::DONT_CARE;
+      assign fmt_result[fmt]         = '{default: fpnew_pkg::DONT_CARE};
+    end
+  end
+
+  // Classification after rounding select by destination format
+  assign uf_after_round = fmt_uf_after_round[dst_fmt_q];
+  assign of_after_round = fmt_of_after_round[dst_fmt_q];
+endmodule
+
