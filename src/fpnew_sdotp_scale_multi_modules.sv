@@ -718,8 +718,8 @@ module normalizer
     end
   end
 
-  norm_barrel_shift #(
-  ) i_norm_barrel_shift (
+  norm_shift #(
+  ) i_norm_shift (
     .sum_shifted          ( sum_shifted          ),
     .sum_magnitude        ( sum_magnitude        ),
     .norm_shamt           ( norm_shamt           )
