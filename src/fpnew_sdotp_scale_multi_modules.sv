@@ -29,6 +29,7 @@ package fpnew_sdotp_scale_multi_pkg;
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
   localparam int unsigned SCALE_WIDTH = 8;
   localparam int unsigned VECTOR_SIZE = 4;
+  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+2;
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
   // ----------
   // Constants
@@ -46,9 +47,17 @@ package fpnew_sdotp_scale_multi_pkg;
   localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
   // Destination precision bits 'p_dst' include the implicit bit
   localparam int unsigned DST_PRECISION_BITS = SUPER_DST_MAN_BITS + 1;
-  localparam int unsigned LOWER_SUM_WIDTH  = 94;
-  localparam int unsigned LZC_SUM_WIDTH    = LOWER_SUM_WIDTH + DST_PRECISION_BITS;
+
+  // Algorithm constants
+  localparam int unsigned ANCHOR = 34; // Fractional point position
+  localparam int unsigned INT_BITS = 32;
+  localparam int unsigned VECTOR_BITS = $clog2(VECTOR_SIZE);
+  localparam int unsigned SOP_FIXED_WIDTH = 1 + VECTOR_BITS + INT_BITS + ANCHOR;
+  localparam int unsigned FIXED_SUM_WIDTH  = 1 + DST_PRECISION_BITS + 1 + (SOP_FIXED_WIDTH - 1); // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
+  localparam int unsigned LZC_SUM_WIDTH    = FIXED_SUM_WIDTH + DST_PRECISION_BITS;
   localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH);
+  localparam int signed MAX_ACC_SHIFT_AMOUNT = FIXED_SUM_WIDTH - DST_PRECISION_BITS - 1; // Maximum allowable shift, -1 for the sign bit
+  localparam int unsigned SOP_SHIFT = ANCHOR - 2*SUPER_MAN_BITS; // Constant left shift amount for the SOP to align the fractional point
 
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
@@ -58,9 +67,6 @@ package fpnew_sdotp_scale_multi_pkg;
   // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
   localparam int unsigned SHIFT_AMOUNT_WIDTH = 7;
   localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
-
-  // Algorithm constants
-  localparam int signed MAX_ACC_SHIFT_AMOUNT = 69;
 
   // Pipelines
   localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
@@ -99,10 +105,10 @@ module classifier
 #(
 ) (
   // Input signals
-  input logic [7:0][SRC_WIDTH-1:0] operands_post_inp_pipe,
+  input logic [2*VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe,
   input logic [SCALE_WIDTH-1:0] operand_c_q,
   input logic [DST_WIDTH-1:0] operand_d_q,
-  input logic [0:NUM_INP_REGS][NUM_FORMATS-1:0][9:0] inp_pipe_is_boxed_q,
+  input logic [0:NUM_INP_REGS][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q,
   input fpnew_pkg::fp_format_e src_fmt_q,
   input fpnew_pkg::fp_format_e dst_fmt_q,
   input logic [0:NUM_INP_REGS] inp_pipe_op_mod_q,
@@ -121,11 +127,11 @@ module classifier
   // Source operands
   // -----------------
 
-  logic        [NUM_FORMATS-1:0][7:0]                     fmt_sign;
-  logic signed [NUM_FORMATS-1:0][7:0][SUPER_EXP_BITS-1:0] fmt_exponent;
-  logic        [NUM_FORMATS-1:0][7:0][SUPER_MAN_BITS-1:0] fmt_mantissa;
+  logic        [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0]                     fmt_sign;
+  logic signed [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0][SUPER_EXP_BITS-1:0] fmt_exponent;
+  logic        [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0][SUPER_MAN_BITS-1:0] fmt_mantissa;
 
-  fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][9:0] info_q;
+  fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] info_q;
 
   // FP Input initialization (Src)
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_src_init_inputs
@@ -135,18 +141,18 @@ module classifier
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
     if (SrcDotpFpFmtConfig[fmt]) begin : active_src_format
-      logic [7:0][FP_WIDTH-1:0] trimmed_ops;
+      logic [2*VECTOR_SIZE-1:0][FP_WIDTH-1:0] trimmed_ops;
 
       // Classify input
       fpnew_classifier #(
         .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-        .NumOperands ( 8                           )
+        .NumOperands ( 2*VECTOR_SIZE                )
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_ops                                 ),
-        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][7:0] ),
-        .info_o      ( info_q[fmt][7:0]                            )
+        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*VECTOR_SIZE-1:0] ),
+        .info_o      ( info_q[fmt][2*VECTOR_SIZE-1:0]                            )
       );
-      for (genvar op = 0; op < 8; op++) begin : gen_operands
+      for (genvar op = 0; op < 2*VECTOR_SIZE; op++) begin : gen_operands
         assign trimmed_ops[op]       = operands_post_inp_pipe[op][FP_WIDTH-1:0];
         assign fmt_sign[fmt][op]     = operands_post_inp_pipe[op][FP_WIDTH-1];
         assign fmt_exponent[fmt][op] = signed'({1'b0, operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS]});
@@ -154,7 +160,7 @@ module classifier
                                        (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
       end
     end else begin : inactive_src_format
-      assign info_q[fmt][7:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign info_q[fmt][2*VECTOR_SIZE-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
       assign fmt_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
@@ -179,7 +185,7 @@ module classifier
       logic [FP_WIDTH-1:0] trimmed_dst_ops;
       logic                dst_ops_is_boxed;
 
-      assign dst_ops_is_boxed = inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][9];
+      assign dst_ops_is_boxed = inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][NUM_OPERANDS-1];
 
       // Classify input
       fpnew_classifier #(
@@ -188,15 +194,15 @@ module classifier
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_dst_ops  ),
         .is_boxed_i  ( dst_ops_is_boxed ),
-        .info_o      ( info_q[fmt][9]   )
+        .info_o      ( info_q[fmt][NUM_OPERANDS-1]   )
       );
       assign trimmed_dst_ops          = operand_d_q[FP_WIDTH-1:0];
       assign fmt_dst_sign[fmt]        = operand_d_q[FP_WIDTH-1];
       assign fmt_dst_exponent[fmt]    = signed'({1'b0, operand_d_q[MAN_BITS+:EXP_BITS]});
-      assign fmt_dst_mantissa[fmt]    = {info_q[fmt][9].is_normal, operand_d_q[MAN_BITS-1:0]}
+      assign fmt_dst_mantissa[fmt]    = {info_q[fmt][NUM_OPERANDS-1].is_normal, operand_d_q[MAN_BITS-1:0]}
                                          << (SUPER_DST_MAN_BITS - MAN_BITS);
     end else begin : inactive_dst_format
-      assign info_q[fmt][9]        = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign info_q[fmt][NUM_OPERANDS-1]        = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_dst_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
       assign fmt_dst_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_dst_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
@@ -229,7 +235,7 @@ module classifier
     operand_c = operand_c_q;
     operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
     info_c    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
-    info_d    = info_q[dst_fmt_q][9];
+    info_d    = info_q[dst_fmt_q][NUM_OPERANDS-1];
 
     // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
     for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_op_mod_q
@@ -247,8 +253,8 @@ module special_cases
   input  fp_src_t [VECTOR_SIZE-1:0]   operands_b,
   input  logic [SCALE_WIDTH-1:0]      operand_c,
   input  fp_dst_t        operand_d,
-  input  fpnew_pkg::fp_info_t [3:0]   info_a,
-  input  fpnew_pkg::fp_info_t [3:0]   info_b,
+  input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0]   info_a,
+  input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0]   info_b,
   input  fpnew_pkg::fp_info_t         info_c,
   input  fpnew_pkg::fp_info_t         info_d,
   input fpnew_pkg::fp_format_e        src_fmt_q,
@@ -279,28 +285,28 @@ module special_cases
 
   // Single generate block for all conditions
   generate
-      for (genvar i = 0; i < VECTOR_SIZE; i = i + 1) begin : gen_conditions
-          // Check if any operand is infinite
-          assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
-          
-          // Check if any operand is NaN
-          assign operand_nan_conditions[i] = info_a[i].is_nan || info_b[i].is_nan;
-          
-          // Check for signalling NaN
-          assign signalling_nan_conditions[i] = info_a[i].is_signalling || info_b[i].is_signalling;
-          
-          // Check for produced NaN (0 * inf or inf * 0)
-          assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) || 
-                                     (info_b[i].is_inf && info_a[i].is_zero);
-          
-          // Check for positive infinity (inf with same sign)
-          assign pos_inf_conditions[i] = (info_a[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign)) ||
-                                         (info_b[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign));
-          
-          // Check for negative infinity (inf with opposite sign)
-          assign neg_inf_conditions[i] = (info_a[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign)) ||
-                                         (info_b[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign));
-      end
+    for (genvar i = 0; i < VECTOR_SIZE; i = i + 1) begin : gen_conditions
+      // Check if any operand is infinite
+      assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
+      
+      // Check if any operand is NaN
+      assign operand_nan_conditions[i] = info_a[i].is_nan || info_b[i].is_nan;
+      
+      // Check for signalling NaN
+      assign signalling_nan_conditions[i] = info_a[i].is_signalling || info_b[i].is_signalling;
+      
+      // Check for produced NaN (0 * inf or inf * 0)
+      assign nan_conditions[i] = (info_a[i].is_inf && info_b[i].is_zero) || 
+                                  (info_b[i].is_inf && info_a[i].is_zero);
+      
+      // Check for positive infinity (inf with same sign)
+      assign pos_inf_conditions[i] = (info_a[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign)) ||
+                                      (info_b[i].is_inf && ~(operands_a[i].sign ^ operands_b[i].sign));
+      
+      // Check for negative infinity (inf with opposite sign)
+      assign neg_inf_conditions[i] = (info_a[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign)) ||
+                                      (info_b[i].is_inf && (operands_a[i].sign ^ operands_b[i].sign));
+    end
   endgenerate
 
   // Reduction for final results
@@ -420,7 +426,7 @@ module shifter
   input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_a,
   input  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_b,
   input  fpnew_pkg::fp_format_e src_fmt_q,
-  output logic signed [VECTOR_SIZE-1:0][69-1:0] shifted_product,
+  output logic signed [VECTOR_SIZE-1:0][SOP_FIXED_WIDTH-1:0] shifted_product,
   output logic [VECTOR_SIZE-1:0][5:0] shift_amount
 );
   // ------------------
@@ -436,7 +442,7 @@ module shifter
     // Right shift the significand by anchor point - exponent
     // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
     // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
-    assign shift_amount[i] = 58 - (34 - exponent_product[i] - 4);
+    assign shift_amount[i] = signed'(SOP_SHIFT) + signed'(exponent_product[i]);
     assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
   end
 endmodule
@@ -446,8 +452,8 @@ module adder
 #(
 ) (
   // Input signals
-  input  logic signed [VECTOR_SIZE-1:0][69-1:0] shifted_product,
-  output logic signed [LOWER_SUM_WIDTH-1:0] sum_product
+  input  logic signed [VECTOR_SIZE-1:0][SOP_FIXED_WIDTH-1:0] shifted_product,
+  output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
 );
   // ------------------
   // Adder data path
@@ -466,7 +472,7 @@ module accumulator_shift
 #(
 ) (
   // Input signals
-  input  logic signed [LOWER_SUM_WIDTH-1:0] sum_product,
+  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product,
   input logic [SCALE_WIDTH-1:0] operand_c,
   input  fp_dst_t operand_d,
   input  fpnew_pkg::fp_info_t info_d,
@@ -487,7 +493,7 @@ module accumulator_shift
   logic signed [DST_EXP_WIDTH-1:0] exponent_d;
   logic [DST_PRECISION_BITS-1:0] mantissa_d;
   logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining;
-  logic signed [LOWER_SUM_WIDTH-1:0] accumulator_shifted, sum_product_accumulator;
+  logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted, sum_product_accumulator;
 
   // Zero-extend exponents into signed container - implicit width extension
   assign exponent_d = {1'b0, operand_d.exponent};
@@ -496,7 +502,7 @@ module accumulator_shift
 
   // Calculate the shift amount for the accumulator
   // TODO: Check if scale comes signed or with bias
-  assign accumulator_shift_amount = signed'(34 - SUPER_DST_MAN_BITS) - signed'(operand_c)
+  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(operand_c)
                                      + signed'(exponent_d + info_d.is_subnormal)
                                      - signed'(fpnew_pkg::bias(dst_fmt_q));
 
@@ -652,6 +658,7 @@ module normalizer
   input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
   input  logic accumulator_sticky,
   input  logic [SCALE_WIDTH-1:0] operand_c_q,
+  input  fpnew_pkg::fp_format_e dst_fmt_q,
   // Output signals
   output logic final_sign,
   output logic signed [DST_EXP_WIDTH-1:0] final_exponent,
@@ -704,7 +711,7 @@ module normalizer
   // Calculate the biased exponent (excess-127 form)
   // The exponent-major is -scaled_anchor
   // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent
-  assign final_tentative_exponent = signed'(127) - (signed'(34)-signed'(operand_c_q)) + (signed'(94) - leading_zero_count_sgn - 1);
+  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q)) - (signed'(ANCHOR)-signed'(operand_c_q)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount

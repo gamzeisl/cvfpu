@@ -14,6 +14,7 @@
 // Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
 
 `include "common_cells/registers.svh"
+import fpnew_sdotp_scale_multi_pkg::*;
 
 module fpnew_sdotp_scale_multi_top #(
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT |
@@ -33,11 +34,11 @@ module fpnew_sdotp_scale_multi_top #(
   input  logic                        clk_i,
   input  logic                        rst_ni,
   // Input signals
-  input  logic [3:0][SRC_WIDTH-1:0]   operands_a_i, // 4 operands
-  input  logic [3:0][SRC_WIDTH-1:0]   operands_b_i, // 4 operands
+  input  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   operands_a_i, // 4 operands
+  input  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   operands_b_i, // 4 operands
   input  logic [SCALE_WIDTH-1:0]      operand_c_i, // 1 operand
   input  logic [DST_WIDTH-1:0]        operand_d_i, // 1 operand, accumulator
-  input  logic [NUM_FORMATS-1:0][9:0] is_boxed_i,  // 10 operands
+  input  logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i,
   input  fpnew_pkg::roundmode_e       rnd_mode_i,
   input  fpnew_pkg::operation_e       op_i,
   input  logic                        op_mod_i,
@@ -64,54 +65,6 @@ module fpnew_sdotp_scale_multi_top #(
   output logic                        busy_o
 );
 
-  // ----------
-  // Constants
-  // ----------
-  // The super-format that can hold all formats
-  localparam fpnew_pkg::fp_encoding_t SUPER_FORMAT = fpnew_pkg::super_format(SrcDotpFpFmtConfig);
-  localparam fpnew_pkg::fp_encoding_t SUPER_DST_FORMAT = fpnew_pkg::super_format(DstDotpFpFmtConfig);
-
-  localparam int unsigned SUPER_EXP_BITS = SUPER_FORMAT.exp_bits;
-  localparam int unsigned SUPER_MAN_BITS = SUPER_FORMAT.man_bits;
-  localparam int unsigned SUPER_DST_EXP_BITS = SUPER_DST_FORMAT.exp_bits;
-  localparam int unsigned SUPER_DST_MAN_BITS = SUPER_DST_FORMAT.man_bits;
-
-  // Precision bits 'p' include the implicit bit
-  localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
-  // Destination precision bits 'p_dst' include the implicit bit
-  localparam int unsigned DST_PRECISION_BITS = SUPER_DST_MAN_BITS + 1;
-  localparam int unsigned LOWER_SUM_WIDTH  = 94;
-  localparam int unsigned LZC_SUM_WIDTH    = LOWER_SUM_WIDTH + DST_PRECISION_BITS;
-  localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH);
-
-  // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
-  // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
-  // In most reasonable FP formats the internal exponent will be wider than the LZC result.
-  localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
-  localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
-  // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
-  localparam int unsigned SHIFT_AMOUNT_WIDTH = 7;
-  localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
-
-  // Algorithm constants
-  localparam int signed MAX_ACC_SHIFT_AMOUNT = 69;
-
-  // Pipelines
-  localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? ((NumPipeRegs + 1) / 3) // Second to get distributed regs
-                               : 0); // no regs here otherwise
-  localparam NUM_MID_REGS = PipeConfig == fpnew_pkg::INSIDE
-                          ? NumPipeRegs
-                          : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                             ? ((NumPipeRegs + 2) / 3) // First to get distributed regs
-                             : 0); // no regs here otherwise
-  localparam NUM_OUT_REGS = PipeConfig == fpnew_pkg::AFTER
-                            ? NumPipeRegs
-                            : (PipeConfig == fpnew_pkg::DISTRIBUTED
-                               ? (NumPipeRegs / 3) // Last to get distributed regs
-                               : 0); // no regs here otherwise
 
 
   // ----------------
@@ -132,8 +85,8 @@ module fpnew_sdotp_scale_multi_top #(
   // Input pipeline
   // ---------------
   // Selected pipeline output signals as non-arrays
-  logic [3:0][SRC_WIDTH-1:0] operands_a_q;
-  logic [3:0][SRC_WIDTH-1:0] operands_b_q;
+  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_a_q;
+  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_b_q;
   logic [SCALE_WIDTH-1:0]    operand_c_q;
   logic [DST_WIDTH-1:0]      operand_d_q;
   fpnew_pkg::fp_format_e src_fmt_q;
@@ -141,11 +94,11 @@ module fpnew_sdotp_scale_multi_top #(
   fpnew_pkg::roundmode_e rnd_mode_q;
 
   // Input pipeline signals, index i holds signal after i register stages
-  logic                  [0:NUM_INP_REGS][3:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
-  logic                  [0:NUM_INP_REGS][3:0][SRC_WIDTH-1:0]   inp_pipe_operands_b_q;
+  logic                  [0:NUM_INP_REGS][VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
+  logic                  [0:NUM_INP_REGS][VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_b_q;
   logic                  [0:NUM_INP_REGS][SCALE_WIDTH-1:0]      inp_pipe_operand_c_q;
   logic                  [0:NUM_INP_REGS][DST_WIDTH-1:0]        inp_pipe_operand_d_q;
-  logic                  [0:NUM_INP_REGS][NUM_FORMATS-1:0][9:0] inp_pipe_is_boxed_q;
+  logic                  [0:NUM_INP_REGS][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q;
   fpnew_pkg::roundmode_e [0:NUM_INP_REGS]                       inp_pipe_rnd_mode_q;
   fpnew_pkg::operation_e [0:NUM_INP_REGS]                       inp_pipe_op_q;
   logic                  [0:NUM_INP_REGS]                       inp_pipe_op_mod_q;
@@ -285,7 +238,7 @@ module fpnew_sdotp_scale_multi_top #(
   // ------------------
   // Shift data path
   // ------------------
-  logic signed [VECTOR_SIZE-1:0][  69-1:0] shifted_product;
+  logic signed [VECTOR_SIZE-1:0][SOP_FIXED_WIDTH-1:0] shifted_product;
   logic [VECTOR_SIZE-1:0][  5:0] shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
 
   shifter #(
@@ -303,7 +256,7 @@ module fpnew_sdotp_scale_multi_top #(
   // ------------------
   // Adder data path
   // ------------------
-  logic signed [LOWER_SUM_WIDTH-1:0] sum_product;
+  logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
   adder #(
   ) i_adder (
@@ -354,6 +307,7 @@ module fpnew_sdotp_scale_multi_top #(
     .accumulator_right_shift_amount(accumulator_right_shift_amount),
     .signed_mantissa_d(signed_mantissa_d),
     .operand_c_q(operand_c_q),
+    .dst_fmt_q(dst_fmt_q),
     .final_sign(final_sign),
     .final_mantissa(final_mantissa),
     .sticky_after_norm(sticky_after_norm),
