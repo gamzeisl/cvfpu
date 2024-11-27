@@ -686,7 +686,7 @@ module normalizer
   // If sum is negative, complement to feed into leading zero counter
   assign final_sign    = sum_product_accumulator_extended[LZC_SUM_WIDTH-1];
 
-  twos_compl_2 #(
+  twos_compl #(
   ) i_twos_compl (
     .sum_product_accumulator_extended ( sum_product_accumulator_extended ),
     .final_sign                      ( final_sign                      ),
