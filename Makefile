@@ -5,10 +5,10 @@
 SHELL = /usr/bin/env bash
 ROOT_DIR := $(patsubst %/,%, $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 
-INSTALL_PREFIX        ?= install
+INSTALL_PREFIX       ?= install
 INSTALL_DIR           = ${ROOT_DIR}/${INSTALL_PREFIX}
 BENDER_INSTALL_DIR    = ${INSTALL_DIR}/bender
-STIM_DIR			  = ${ROOT_DIR}/../..
+STIM_DIR			 ?= ${ROOT_DIR}/../../testvectors
 
 VENV_BIN=venv/bin/
 
@@ -21,7 +21,7 @@ target ?= tb_fpnew_sdotp_scale_multi
 
 src_fmt   ?= FP8
 num_vectors ?= 100
-stim_file ?= testvectors/test_data_${src_fmt}_${num_vectors}.csv
+stim_file ?= test_data_${src_fmt}_${num_vectors}.csv
 
 vlog_defs += -DSTIM_FILE="\"$(STIM_DIR)/$(stim_file)\"" -DSRC_FMT="\"$(src_fmt)\""
 
