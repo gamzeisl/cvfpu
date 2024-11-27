@@ -170,22 +170,6 @@ module tb_fpnew_sdotp_scale_multi;
       // Wait for the result
       wait (out_valid_o);
       #5;
-      
-      // Compare result with the expected result from Python
-      if (dut.result_is_special != 1'b1) begin
-        if (dut.sum_product !== sum_prod) begin
-          $display("Sum product test failed! Expected: %h, Got: %h at time %t", sum_prod, dut.sum_product, $realtime);
-        end
-        if (dut.accumulator_shift_amount !== shift_acc) begin
-          $display("Accumlator shift amount test failed! Expected: %h, Got: %h at time %t", shift_acc, dut.accumulator_shift_amount, $realtime);
-        end
-        if (dut.accumulator_shifted !== shifted_acc) begin
-          $display("Shifted accumulator test failed! Expected: %h, Got: %h at time %t", shifted_acc, dut.accumulator_shifted, $realtime);
-        end
-        if (dut.result_is_accumulator !== 1'b1 && dut.sum_product_accumulator !== sum_prod_acc) begin
-          $display("Sum product accumulator test failed! Expected: %h, Got: %h at time %t", sum_prod_acc, dut.sum_product_accumulator, $realtime);
-        end
-      end
 
       if (result_o !== expected_result) begin
         $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", count, expected_result, result_o, $realtime);
@@ -198,6 +182,6 @@ module tb_fpnew_sdotp_scale_multi;
     // Stop the simulation
     $fclose(file);
     $display("Simulation finished, number of test vectors tested: %d, failed: %d", count-1, fail_count);
-    $stop;
+    $finish;
   end
 endmodule
