@@ -39,7 +39,7 @@ clean-sim:
 	rm -rf $(SIM_PATH)/modelsim.ini
 	rm -rf $(SIM_PATH)/vsim.wlf
 
-sim-script: clean-sim
+sim-script: clean-sim bender
 	mkdir -p $(SIM_PATH)
 	$(BENDER_INSTALL_DIR)/bender script vsim $(BENDER_TARGETS) $(vlog_defs) --vlog-arg="$(VLOG_FLAGS)" >> $(SIM_PATH)/compile.tcl
 
