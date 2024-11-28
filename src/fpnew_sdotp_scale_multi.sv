@@ -27,7 +27,7 @@ module fpnew_sdotp_scale_multi #(
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig),
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig),
   localparam int unsigned SCALE_WIDTH = 8,
-  localparam int unsigned VECTOR_SIZE = 4,
+  parameter int unsigned VECTOR_SIZE = 4,
   localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+2,
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS
 ) (

@@ -4,6 +4,7 @@ module tb_fpnew_sdotp_scale_multi;
   // Simulation inputs
   string stim_file = `STIM_FILE;
   fpnew_pkg::fp_format_e SRC_FMT = (`SRC_FMT == "FP8") ? fpnew_pkg::FP8 : fpnew_pkg::FP8ALT;
+  localparam int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
 
   // Parameters for the module
   parameter fpnew_pkg::fmt_logic_t SrcDotpFpFmtConfig = 6'b000101; // Supported source formats (FP8, FP8ALT)
@@ -16,6 +17,7 @@ module tb_fpnew_sdotp_scale_multi;
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
   localparam int unsigned SCALE_WIDTH = 8;
+  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+2;
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
 
   // Clock and reset signals
@@ -23,11 +25,11 @@ module tb_fpnew_sdotp_scale_multi;
   logic rst_ni;
 
   // Input signals
-  logic [3:0][SRC_WIDTH-1:0] operands_a_i;
-  logic [3:0][SRC_WIDTH-1:0] operands_b_i;
+  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_a_i;
+  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_b_i;
   logic [SCALE_WIDTH-1:0] operand_c_i;
   logic [DST_WIDTH-1:0] operand_d_i;
-  logic [NUM_FORMATS-1:0][9:0] is_boxed_i;
+  logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i;
   fpnew_pkg::roundmode_e rnd_mode_i;
   fpnew_pkg::operation_e op_i;
   logic op_mod_i;
@@ -73,7 +75,8 @@ module tb_fpnew_sdotp_scale_multi;
     .NumPipeRegs(NumPipeRegs),
     .PipeConfig(PipeConfig),
     .TagType(TagType),
-    .AuxType(AuxType)
+    .AuxType(AuxType),
+    .VECTOR_SIZE(VECTOR_SIZE)
   ) dut (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
@@ -150,12 +153,18 @@ module tb_fpnew_sdotp_scale_multi;
         continue;  // Skip empty lines
       end
 
-      // Parse the string and extract individual values
-      r = $sscanf(line, "%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%b,%d,%d,%d,%d,%b,%d", 
-                  operands_a_i[0], operands_a_i[1], operands_a_i[2], operands_a_i[3],
-                  operands_b_i[0], operands_b_i[1], operands_b_i[2], operands_b_i[3],
-                  operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
-                  shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
+    for (int i = 0; i < VECTOR_SIZE; i++) begin
+      r = $sscanf(line, "%b,", operands_a_i[i]);
+      line = line.substr(SRC_WIDTH + 1, line.len()-1);
+    end
+    for (int i = 0; i < VECTOR_SIZE; i++) begin
+      r = $sscanf(line, "%b,", operands_b_i[i]);
+      line = line.substr(SRC_WIDTH + 1, line.len()-1);
+    end
+
+    r = $sscanf(line, "%b,%b,%b,%d,%d,%d,%d,%b,%d", 
+                operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
+                shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
 
       // Set remaining signals
       is_boxed_i = '1;
