@@ -4,13 +4,15 @@ module tb_fpnew_sdotp_scale_multi;
   // Simulation inputs
   string stim_file = `STIM_FILE;
   fpnew_pkg::fp_format_e SRC_FMT = (`SRC_FMT == "FP8") ? fpnew_pkg::FP8 : fpnew_pkg::FP8ALT;
-  localparam int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
+  parameter int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
+  parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
+  parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
 
   // Parameters for the module
+  parameter fpnew_pkg::pipe_config_t PipeConfig = fpnew_pkg::DISTRIBUTED;
   parameter fpnew_pkg::fmt_logic_t SrcDotpFpFmtConfig = 6'b000101; // Supported source formats (FP8, FP8ALT)
   parameter fpnew_pkg::fmt_logic_t DstDotpFpFmtConfig = 6'b100000; // Supported destination formats (FP32)
-  parameter int unsigned NumPipeRegs = 0;
-  parameter fpnew_pkg::pipe_config_t PipeConfig = fpnew_pkg::BEFORE;
+
   parameter type TagType = logic;
   parameter type AuxType = logic;
 
@@ -19,6 +21,10 @@ module tb_fpnew_sdotp_scale_multi;
   localparam int unsigned SCALE_WIDTH = 8;
   localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+2;
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
+
+  localparam int unsigned TCP = 10;  // Clock period in ns
+  localparam int unsigned T_APP = TCP/5;  // Apply time in ns
+  localparam int unsigned T_TEST = TCP-T_APP;  // Test time in ns
 
   // Clock and reset signals
   logic clk_i;
@@ -61,6 +67,11 @@ module tb_fpnew_sdotp_scale_multi;
 
   // Test vector counter
   int count, fail_count;
+  bit input_finished;
+
+  // Declare a queue to store expected results
+  logic [31:0] expected_results[$];
+  int vector_indices[$];  // Optional: track input vector indices for easier debugging
 
   // Expected results
   logic [31:0] expected_result;
@@ -110,7 +121,7 @@ module tb_fpnew_sdotp_scale_multi;
   // Clock generation
   initial begin
     clk_i = 1;
-    forever #5 clk_i = ~clk_i;  // 10ns clock period
+    forever #(TCP/2) clk_i = ~clk_i;  // 10ns clock period
   end
 
   // Reset task
@@ -125,13 +136,21 @@ module tb_fpnew_sdotp_scale_multi;
     end
   endtask
 
-  // Test vector generator
-  initial begin
+  initial begin : supply_input
     $timeformat(-9, 1, " ns", 12);
 
     // Reset the DUT
     reset_dut();
+    input_finished = 0;
     @(posedge clk_i);
+
+    // Set constant input signals
+    is_boxed_i = '1;
+    src_fmt_i = SRC_FMT;
+    dst_fmt_i = fpnew_pkg::FP32;
+    rnd_mode_i = fpnew_pkg::RNE;
+    op_i = fpnew_pkg::SDOTP;
+    op_mod_i = 0;
 
     // Open the file with input data and expected result
     file = $fopen(stim_file, "r");
@@ -141,55 +160,72 @@ module tb_fpnew_sdotp_scale_multi;
     end
 
     count = 1;
-    fail_count = 0;
 
-    // Read test vectors from the file, process each line
+    // Modified loop for pipelined execution
     while (!$feof(file)) begin
       @(posedge clk_i);
-      // Read the test vectors from the file (single line)
-      line = "";
-      r = $fgets(line, file);
-      if (line == "") begin
-        continue;  // Skip empty lines
+      #(T_APP);
+
+      // Randomize `in_valid_i` with PROB_STALL% chance of being low
+      in_valid_i = ($urandom() % 100) > PROB_STALL;
+      #(T_TEST-T_APP);
+
+      if (in_valid_i && in_ready_o) begin
+        line = "";
+        r = $fgets(line, file);
+        if (line == "") begin
+          continue;  // Skip empty lines
+        end
+
+        for (int i = 0; i < VECTOR_SIZE; i++) begin
+          r = $sscanf(line, "%b,", operands_a_i[i]);
+          line = line.substr(SRC_WIDTH + 1, line.len()-1);
+        end
+        for (int i = 0; i < VECTOR_SIZE; i++) begin
+          r = $sscanf(line, "%b,", operands_b_i[i]);
+          line = line.substr(SRC_WIDTH + 1, line.len()-1);
+        end
+
+        r = $sscanf(line, "%b,%b,%b,%d,%d,%d,%d,%b,%d", 
+                    operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
+                    shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
+
+        // Store expected result and vector index for later checking
+        expected_results.push_back(expected_result);
+        vector_indices.push_back(count);
+
+        count++;
       end
-
-    for (int i = 0; i < VECTOR_SIZE; i++) begin
-      r = $sscanf(line, "%b,", operands_a_i[i]);
-      line = line.substr(SRC_WIDTH + 1, line.len()-1);
-    end
-    for (int i = 0; i < VECTOR_SIZE; i++) begin
-      r = $sscanf(line, "%b,", operands_b_i[i]);
-      line = line.substr(SRC_WIDTH + 1, line.len()-1);
     end
 
-    r = $sscanf(line, "%b,%b,%b,%d,%d,%d,%d,%b,%d", 
-                operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
-                shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
-
-      // Set remaining signals
-      is_boxed_i = '1;
-      src_fmt_i = SRC_FMT;
-      dst_fmt_i = fpnew_pkg::FP32;
-      rnd_mode_i = fpnew_pkg::RNE;
-      op_i = fpnew_pkg::SDOTP;
-      op_mod_i = 0;
-      in_valid_i = 1;
-      out_ready_i = 1;
-
-      // Wait for the result
-      wait (out_valid_o);
-      #5;
-
-      if (result_o !== expected_result) begin
-        $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", count, expected_result, result_o, $realtime);
-        fail_count++;
-      end
-
-      count++;
-    end
-
-    // Stop the simulation
     $fclose(file);
+    input_finished = 1;
+  end
+
+  initial begin : check_output
+    fail_count = 0;
+    out_ready_i = 0;
+
+    // Wait for remaining outputs to complete
+    while (!input_finished || expected_results.size() > 0) begin
+      @(posedge clk_i);
+      #(T_APP);
+
+      // Randomize `out_ready_i` with PROB_STALL% chance of being low
+      out_ready_i = ($urandom() % 100) > PROB_STALL;
+      #(T_TEST-T_APP);
+
+      if (out_valid_o && out_ready_i) begin
+        if (result_o !== expected_results[0]) begin
+          $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", 
+                    vector_indices[0], expected_results[0], result_o, $realtime);
+          fail_count++;
+        end
+        expected_results.pop_front();
+        vector_indices.pop_front();
+      end
+    end
+
     $display("Simulation finished, number of test vectors tested: %d, failed: %d", count-1, fail_count);
     $finish;
   end

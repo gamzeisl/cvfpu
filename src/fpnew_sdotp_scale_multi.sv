@@ -144,7 +144,6 @@ module fpnew_sdotp_scale_multi #(
   logic [DST_WIDTH-1:0]      operand_d_q;
   fpnew_pkg::fp_format_e src_fmt_q;
   fpnew_pkg::fp_format_e dst_fmt_q;
-  fpnew_pkg::roundmode_e rnd_mode_q;
 
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
@@ -215,7 +214,6 @@ module fpnew_sdotp_scale_multi #(
   assign operand_d_q    = inp_pipe_operand_d_q[NUM_INP_REGS];
   assign src_fmt_q      = inp_pipe_src_fmt_q[NUM_INP_REGS];
   assign dst_fmt_q      = inp_pipe_dst_fmt_q[NUM_INP_REGS];
-  assign rnd_mode_q     = inp_pipe_rnd_mode_q[NUM_INP_REGS];
 
   logic [2*VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe;
   assign operands_post_inp_pipe = {operands_b_q, operands_a_q};
@@ -522,6 +520,90 @@ module fpnew_sdotp_scale_multi #(
     end
   end
 
+  // ---------------
+  // Internal pipeline
+  // ---------------
+  // Pipeline output signals as non-arrays
+  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q;
+  logic [SCALE_WIDTH-1:0]            operand_c_q2;
+  fp_dst_t                           operand_d_q2;
+  fpnew_pkg::fp_info_t               info_d_q;
+  fpnew_pkg::fp_format_e             dst_fmt_q2;
+  fpnew_pkg::roundmode_e             rnd_mode_q;
+  logic                              result_is_special_q;
+  logic [DST_WIDTH-1:0]              special_result_q;
+  fpnew_pkg::status_t                special_status_q;
+  // Internal pipeline signals, index i holds signal after i register stages
+  logic signed           [0:NUM_MID_REGS][FIXED_SUM_WIDTH-1:0]    mid_pipe_sum_product_q;
+  logic                  [0:NUM_MID_REGS][SCALE_WIDTH-1:0]        mid_pipe_operand_c_q;
+  fp_dst_t               [0:NUM_MID_REGS]                         mid_pipe_operand_d_q;
+  fpnew_pkg::fp_info_t   [0:NUM_MID_REGS]                         mid_pipe_info_d_q;
+  fpnew_pkg::fp_format_e [0:NUM_MID_REGS]                         mid_pipe_dst_fmt_q;
+  fpnew_pkg::roundmode_e [0:NUM_MID_REGS]                         mid_pipe_rnd_mode_q;
+  logic                  [0:NUM_MID_REGS]                         mid_pipe_res_is_spec_q;
+  logic                  [0:NUM_MID_REGS][DST_WIDTH-1:0]          mid_pipe_spec_res_q;
+  fpnew_pkg::status_t    [0:NUM_MID_REGS]                         mid_pipe_spec_stat_q;
+  TagType                [0:NUM_MID_REGS]                         mid_pipe_tag_q;
+  logic                  [0:NUM_MID_REGS]                         mid_pipe_mask_q;
+  AuxType                [0:NUM_MID_REGS]                         mid_pipe_aux_q;
+  logic                  [0:NUM_MID_REGS]                         mid_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic [0:NUM_MID_REGS] mid_pipe_ready;
+
+  // Input stage: First element of pipeline is taken from upstream logic
+  assign mid_pipe_sum_product_q[0] = sum_product;
+  assign mid_pipe_operand_c_q[0]   = operand_c;
+  assign mid_pipe_operand_d_q[0]   = operand_d;
+  assign mid_pipe_info_d_q[0]      = info_d;
+  assign mid_pipe_dst_fmt_q[0]     = dst_fmt_q;
+  assign mid_pipe_rnd_mode_q[0]    = inp_pipe_rnd_mode_q[NUM_INP_REGS];
+  assign mid_pipe_res_is_spec_q[0] = result_is_special;
+  assign mid_pipe_spec_res_q[0]    = special_result;
+  assign mid_pipe_spec_stat_q[0]   = special_status;
+  assign mid_pipe_tag_q[0]         = inp_pipe_tag_q[NUM_INP_REGS];
+  assign mid_pipe_mask_q[0]        = inp_pipe_mask_q[NUM_INP_REGS];
+  assign mid_pipe_aux_q[0]         = inp_pipe_aux_q[NUM_INP_REGS];
+  assign mid_pipe_valid_q[0]       = inp_pipe_valid_q[NUM_INP_REGS];
+  // Input stage: Propagate pipeline ready signal to input pipe
+  assign inp_pipe_ready[NUM_INP_REGS] = mid_pipe_ready[0];
+
+  // Generate the register stages
+  for (genvar i = 0; i < NUM_MID_REGS; i++) begin : gen_inside_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign mid_pipe_ready[i] = mid_pipe_ready[i+1] | ~mid_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(mid_pipe_valid_q[i+1], mid_pipe_valid_q[i], mid_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipleine ready and a valid data item is present
+    assign reg_ena = mid_pipe_ready[i] & mid_pipe_valid_q[i];
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(mid_pipe_sum_product_q[i+1], mid_pipe_sum_product_q[i], reg_ena, '0)
+    `FFL(mid_pipe_operand_c_q[i+1],   mid_pipe_operand_c_q[i],   reg_ena, '0)
+    `FFL(mid_pipe_operand_d_q[i+1],   mid_pipe_operand_d_q[i],   reg_ena, '0)
+    `FFL(mid_pipe_info_d_q[i+1],      mid_pipe_info_d_q[i],      reg_ena, '0)
+    `FFL(mid_pipe_dst_fmt_q[i+1],     mid_pipe_dst_fmt_q[i],     reg_ena, fpnew_pkg::fp_format_e'(0))
+    `FFL(mid_pipe_rnd_mode_q[i+1],    mid_pipe_rnd_mode_q[i],    reg_ena, fpnew_pkg::RNE)
+    `FFL(mid_pipe_res_is_spec_q[i+1], mid_pipe_res_is_spec_q[i], reg_ena, '0)
+    `FFL(mid_pipe_spec_res_q[i+1],    mid_pipe_spec_res_q[i],    reg_ena, '0)
+    `FFL(mid_pipe_spec_stat_q[i+1],   mid_pipe_spec_stat_q[i],   reg_ena, '0)
+    `FFL(mid_pipe_tag_q[i+1],         mid_pipe_tag_q[i],         reg_ena, TagType'('0))
+    `FFL(mid_pipe_mask_q[i+1],        mid_pipe_mask_q[i],        reg_ena, '0)
+    `FFL(mid_pipe_aux_q[i+1],         mid_pipe_aux_q[i],         reg_ena, AuxType'('0))
+  end
+  // Output stage: assign selected pipe outputs to signals for later use
+  assign sum_product_q           = mid_pipe_sum_product_q[NUM_MID_REGS];
+  assign operand_c_q2            = mid_pipe_operand_c_q[NUM_MID_REGS];
+  assign operand_d_q2            = mid_pipe_operand_d_q[NUM_MID_REGS];
+  assign info_d_q                = mid_pipe_info_d_q[NUM_MID_REGS];
+  assign dst_fmt_q2              = mid_pipe_dst_fmt_q[NUM_MID_REGS];
+  assign rnd_mode_q              = mid_pipe_rnd_mode_q[NUM_MID_REGS];
+  assign result_is_special_q     = mid_pipe_res_is_spec_q[NUM_MID_REGS];
+  assign special_result_q        = mid_pipe_spec_res_q[NUM_MID_REGS];
+  assign special_status_q        = mid_pipe_spec_stat_q[NUM_MID_REGS];
+
   // -----------------------------
   // Accumulator shift data path
   // -----------------------------
@@ -538,15 +620,15 @@ module fpnew_sdotp_scale_multi #(
   logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended;
 
   // Zero-extend exponents into signed container - implicit width extension
-  assign exponent_d = {1'b0, operand_d.exponent};
-  assign mantissa_d = {info_d.is_normal, operand_d.mantissa};
-  assign signed_mantissa_d = operand_d.sign ? -mantissa_d : mantissa_d;
+  assign exponent_d = {1'b0, operand_d_q2.exponent};
+  assign mantissa_d = {info_d_q.is_normal, operand_d_q2.mantissa};
+  assign signed_mantissa_d = operand_d_q2.sign ? -mantissa_d : mantissa_d;
 
   // Calculate the shift amount for the accumulator
   // TODO: Check if scale comes signed or with bias
-  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(operand_c)
-                                     + signed'(exponent_d + info_d.is_subnormal)
-                                     - signed'(fpnew_pkg::bias(dst_fmt_q));
+  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(operand_c_q2)
+                                     + signed'(exponent_d + info_d_q.is_subnormal)
+                                     - signed'(fpnew_pkg::bias(dst_fmt_q2));
 
   always_comb begin : accumulator_shift
     result_is_accumulator = 1'b0;
@@ -565,7 +647,7 @@ module fpnew_sdotp_scale_multi #(
       accumulator_right_shift_amount = -accumulator_shift_amount;
       accumulator_shifted = signed'(signed_mantissa_d) >>> accumulator_right_shift_amount;
       if (accumulator_right_shift_amount > DST_PRECISION_BITS) begin
-        result_is_accumulator = (sum_product == '0) ? 1'b1 : 1'b0;
+        result_is_accumulator = (sum_product_q == '0) ? 1'b1 : 1'b0;
         accumulator_remaining = signed'(signed_mantissa_d) >>> (accumulator_right_shift_amount - DST_PRECISION_BITS);
         accumulator_sticky = |(signed'(signed_mantissa_d) & ((1 << (accumulator_right_shift_amount - DST_PRECISION_BITS)) - 1));
       end else begin
@@ -575,7 +657,7 @@ module fpnew_sdotp_scale_multi #(
     end
   end
 
-  assign sum_product_accumulator = sum_product + accumulator_shifted;
+  assign sum_product_accumulator = sum_product_q + accumulator_shifted;
   assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};
 
   // --------------
@@ -628,7 +710,7 @@ module fpnew_sdotp_scale_multi #(
   // Calculate the biased exponent (excess-127 form)
   // The exponent-major is -scaled_anchor
   // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent
-  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q)) - (signed'(ANCHOR)-signed'(operand_c_q)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
+  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q2)) - (signed'(ANCHOR)-signed'(operand_c_q2)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount
@@ -671,7 +753,7 @@ module fpnew_sdotp_scale_multi #(
   logic                                             result_zero;
 
   // Classification before round. RISC-V mandates checking underflow AFTER rounding
-  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt_q))-1; // infinity exponent is all ones
+  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt_q2))-1; // infinity exponent is all ones
   assign uf_before_round = final_exponent == 0;               // exponent for subnormals capped to 0
 
   // Pack exponent and mantissa into proper rounding form
@@ -709,10 +791,10 @@ module fpnew_sdotp_scale_multi #(
   end
 
   // Assemble result before rounding. In case of overflow, the largest normal value is set.
-  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt_q];
+  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt_q2];
 
   // In case of overflow, the round and sticky bits are set for proper rounding
-  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q];
+  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q2];
   // TODO: Check for zeros
   // assign pre_round_sign     = (info_max_is_zero_q && (pre_round_abs == '0) && (| round_sticky_bits))
   //                             ? final_sign_zero_q : final_sign_z;
@@ -763,8 +845,8 @@ module fpnew_sdotp_scale_multi #(
   end
 
   // Classification after rounding select by destination format
-  assign uf_after_round = fmt_uf_after_round[dst_fmt_q];
-  assign of_after_round = fmt_of_after_round[dst_fmt_q];
+  assign uf_after_round = fmt_uf_after_round[dst_fmt_q2];
+  assign of_after_round = fmt_of_after_round[dst_fmt_q2];
 
   // -----------------
   // Result selection
@@ -773,7 +855,7 @@ module fpnew_sdotp_scale_multi #(
   fpnew_pkg::status_t   regular_status;
 
   // Assemble regular result
-  assign regular_result    = fmt_result[dst_fmt_q];
+  assign regular_result    = fmt_result[dst_fmt_q2];
   assign regular_status.NV = 1'b0; // only valid cases are handled in regular path
   assign regular_status.DZ = 1'b0; // no divisions
   assign regular_status.OF = of_before_round | of_after_round;   // rounding can introduce overflow
@@ -785,10 +867,59 @@ module fpnew_sdotp_scale_multi #(
   fpnew_pkg::status_t   status_d;
 
   // Select output depending on special case detection
-  // TODO: Add output pipeline
-  assign result_o = result_is_special ? special_result : ((result_is_accumulator | sum_magnitude == '0) ? operand_d_q : regular_result);
-  assign status_o = result_is_special ? special_status : ((result_is_accumulator | sum_magnitude == '0) ? fpnew_pkg::status_t'(0) : regular_status);
-  assign out_valid_o = 1'b1;
+  assign result_d = result_is_special_q ? special_result_q : ((result_is_accumulator | sum_magnitude == '0) ? operand_d_q2 : regular_result);
+  assign status_d = result_is_special_q ? special_status_q : ((result_is_accumulator | sum_magnitude == '0) ? fpnew_pkg::status_t'(0) : regular_status);
 
+  // ----------------
+  // Output Pipeline
+  // ----------------
+  // Output pipeline signals, index i holds signal after i register stages
+  logic               [0:NUM_OUT_REGS][DST_WIDTH-1:0] out_pipe_result_q;
+  fpnew_pkg::status_t [0:NUM_OUT_REGS]                out_pipe_status_q;
+  TagType             [0:NUM_OUT_REGS]                out_pipe_tag_q;
+  logic               [0:NUM_OUT_REGS]                out_pipe_mask_q;
+  AuxType             [0:NUM_OUT_REGS]                out_pipe_aux_q;
+  logic               [0:NUM_OUT_REGS]                out_pipe_valid_q;
+  // Ready signal is combinatorial for all stages
+  logic [0:NUM_OUT_REGS] out_pipe_ready;
 
+  // Input stage: First element of pipeline is taken from inputs
+  assign out_pipe_result_q[0] = result_d;
+  assign out_pipe_status_q[0] = status_d;
+  assign out_pipe_tag_q[0]    = mid_pipe_tag_q[NUM_MID_REGS];
+  assign out_pipe_mask_q[0]   = mid_pipe_mask_q[NUM_MID_REGS];
+  assign out_pipe_aux_q[0]    = mid_pipe_aux_q[NUM_MID_REGS];
+  assign out_pipe_valid_q[0]  = mid_pipe_valid_q[NUM_MID_REGS];
+  // Input stage: Propagate pipeline ready signal to inside pipe
+  assign mid_pipe_ready[NUM_MID_REGS] = out_pipe_ready[0];
+  // Generate the register stages
+  for (genvar i = 0; i < NUM_OUT_REGS; i++) begin : gen_output_pipeline
+    // Internal register enable for this stage
+    logic reg_ena;
+    // Determine the ready signal of the current stage - advance the pipeline:
+    // 1. if the next stage is ready for our data
+    // 2. if the next stage only holds a bubble (not valid) -> we can pop it
+    assign out_pipe_ready[i] = out_pipe_ready[i+1] | ~out_pipe_valid_q[i+1];
+    // Valid: enabled by ready signal, synchronous clear with the flush signal
+    `FFLARNC(out_pipe_valid_q[i+1], out_pipe_valid_q[i], out_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
+    // Enable register if pipleine ready and a valid data item is present
+    assign reg_ena = out_pipe_ready[i] & out_pipe_valid_q[i];
+    // Generate the pipeline registers within the stages, use enable-registers
+    `FFL(out_pipe_result_q[i+1], out_pipe_result_q[i], reg_ena, '0)
+    `FFL(out_pipe_status_q[i+1], out_pipe_status_q[i], reg_ena, '0)
+    `FFL(out_pipe_tag_q[i+1],    out_pipe_tag_q[i],    reg_ena, TagType'('0))
+    `FFL(out_pipe_mask_q[i+1],   out_pipe_mask_q[i],   reg_ena, '0)
+    `FFL(out_pipe_aux_q[i+1],    out_pipe_aux_q[i],    reg_ena, AuxType'('0))
+  end
+  // Output stage: Ready travels backwards from output side, driven by downstream circuitry
+  assign out_pipe_ready[NUM_OUT_REGS] = out_ready_i;
+  // Output stage: assign module outputs
+  assign result_o        = out_pipe_result_q[NUM_OUT_REGS];
+  assign status_o        = out_pipe_status_q[NUM_OUT_REGS];
+  assign extension_bit_o = 1'b1; // always NaN-Box result
+  assign tag_o           = out_pipe_tag_q[NUM_OUT_REGS];
+  assign mask_o          = out_pipe_mask_q[NUM_OUT_REGS];
+  assign aux_o           = out_pipe_aux_q[NUM_OUT_REGS];
+  assign out_valid_o     = out_pipe_valid_q[NUM_OUT_REGS];
+  assign busy_o          = (| {inp_pipe_valid_q, mid_pipe_valid_q, out_pipe_valid_q});
 endmodule
