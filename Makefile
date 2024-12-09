@@ -19,12 +19,14 @@ BENDER_TARGETS = -t tb
 
 target ?= tb_fpnew_sdotp_scale_multi
 
-src_fmt   ?= FP8
+src_fmt ?= FP8
 vector_size ?= 4
+num_pipe_regs ?= 3
+prob_stall ?= 10 # 10% stall probability
 num_vectors ?= 100
 stim_file ?= test_data_${src_fmt}_${num_vectors}.csv
 
-vlog_defs += -DSTIM_FILE="\"$(STIM_DIR)/$(stim_file)\"" -DSRC_FMT="\"$(src_fmt)\"" -DVECTOR_SIZE=$(vector_size)
+vlog_defs += -DSTIM_FILE="\"$(STIM_DIR)/$(stim_file)\"" -DSRC_FMT="\"$(src_fmt)\"" -DVECTOR_SIZE=$(vector_size) -DNUM_PIPE_REGS=$(num_pipe_regs) -DPROB_STALL=$(prob_stall) -DNUM_VECTORS=$(num_vectors)
 
 VLOG_FLAGS += -svinputport=compat
 VLOG_FLAGS += -timescale 1ns/1ps

@@ -7,6 +7,7 @@ module tb_fpnew_sdotp_scale_multi;
   parameter int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
   parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
   parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
+  parameter int unsigned NUM_VECTORS = `NUM_VECTORS;
 
   // Parameters for the module
   parameter fpnew_pkg::pipe_config_t PipeConfig = fpnew_pkg::DISTRIBUTED;
@@ -66,8 +67,7 @@ module tb_fpnew_sdotp_scale_multi;
   string line;
 
   // Test vector counter
-  int count, fail_count;
-  bit input_finished;
+  int count_applied, count_checked, fail_count;
 
   // Declare a queue to store expected results
   logic [31:0] expected_results[$];
@@ -141,7 +141,6 @@ module tb_fpnew_sdotp_scale_multi;
 
     // Reset the DUT
     reset_dut();
-    input_finished = 0;
     @(posedge clk_i);
 
     // Set constant input signals
@@ -151,6 +150,10 @@ module tb_fpnew_sdotp_scale_multi;
     rnd_mode_i = fpnew_pkg::RNE;
     op_i = fpnew_pkg::SDOTP;
     op_mod_i = 0;
+    flush_i = 0;
+    tag_i = '0;
+    mask_i = '0;
+    aux_i = '0;
 
     // Open the file with input data and expected result
     file = $fopen(stim_file, "r");
@@ -159,7 +162,7 @@ module tb_fpnew_sdotp_scale_multi;
       $finish;
     end
 
-    count = 1;
+    count_applied = 0;
 
     // Modified loop for pipelined execution
     while (!$feof(file)) begin
@@ -167,10 +170,8 @@ module tb_fpnew_sdotp_scale_multi;
       #(T_APP);
 
       // Randomize `in_valid_i` with PROB_STALL% chance of being low
-      in_valid_i = ($urandom() % 100) > PROB_STALL;
-      #(T_TEST-T_APP);
-
-      if (in_valid_i && in_ready_o) begin
+      in_valid_i = ($urandom() % 100) >= PROB_STALL;
+      if (in_valid_i) begin
         line = "";
         r = $fgets(line, file);
         if (line == "") begin
@@ -190,29 +191,36 @@ module tb_fpnew_sdotp_scale_multi;
                     operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
                     shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
 
+        count_applied++;
+
         // Store expected result and vector index for later checking
         expected_results.push_back(expected_result);
-        vector_indices.push_back(count);
+        vector_indices.push_back(count_applied); // start from 1
 
-        count++;
+        #(T_TEST-T_APP);
+        wait (in_ready_o); // Wait for handshake
       end
     end
 
+    @(posedge clk_i);
+    #(T_APP);
+    in_valid_i = 0;
+
     $fclose(file);
-    input_finished = 1;
   end
 
   initial begin : check_output
+    count_checked = 0;
     fail_count = 0;
     out_ready_i = 0;
 
     // Wait for remaining outputs to complete
-    while (!input_finished || expected_results.size() > 0) begin
+    while (count_checked < NUM_VECTORS) begin
       @(posedge clk_i);
       #(T_APP);
 
       // Randomize `out_ready_i` with PROB_STALL% chance of being low
-      out_ready_i = ($urandom() % 100) > PROB_STALL;
+      out_ready_i = ($urandom() % 100) >= PROB_STALL;
       #(T_TEST-T_APP);
 
       if (out_valid_o && out_ready_i) begin
@@ -223,10 +231,11 @@ module tb_fpnew_sdotp_scale_multi;
         end
         expected_results.pop_front();
         vector_indices.pop_front();
+        count_checked++;
       end
     end
 
-    $display("Simulation finished, number of test vectors tested: %d, failed: %d", count-1, fail_count);
+    $display("Simulation finished, number of test vectors tested: %d, failed: %d", count_checked, fail_count);
     $finish;
   end
 endmodule
