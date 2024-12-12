@@ -687,7 +687,6 @@ module fpnew_sdotp_scale_multi #(
     end
   end
 
-  // TODO: Check if the lzc_zeroes==1
   // Leading sign counter
   lzc #(
     .WIDTH ( LZC_SUM_WIDTH ),
@@ -708,12 +707,12 @@ module fpnew_sdotp_scale_multi #(
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount
     // Subnormals
-    if (final_tentative_exponent <= 0) begin
-      norm_shamt          = leading_zero_count_sgn + final_tentative_exponent;
-      normalized_exponent = '0; // subnormals encoded as 0
-    end else begin
+    if (final_tentative_exponent > 0 && !lzc_zeroes) begin
       norm_shamt          = leading_zero_count_sgn + 1;
       normalized_exponent = final_tentative_exponent;
+    end else begin // Subnormals and zero
+      norm_shamt          = leading_zero_count_sgn + final_tentative_exponent;
+      normalized_exponent = '0; // subnormals encoded as 0
     end
   end
 
@@ -788,9 +787,6 @@ module fpnew_sdotp_scale_multi #(
 
   // In case of overflow, the round and sticky bits are set for proper rounding
   assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q2];
-  // TODO: Check for zeros
-  // assign pre_round_sign     = (info_max_is_zero_q && (pre_round_abs == '0) && (| round_sticky_bits))
-  //                             ? final_sign_zero_q : final_sign_z;
   assign pre_round_sign     = final_sign;
 
   // Perform the rounding
@@ -806,7 +802,7 @@ module fpnew_sdotp_scale_multi #(
     .round_sticky_bits_i        ( round_sticky_bits        ),
     .stochastic_rounding_bits_i ( '0                       ),
     .rnd_mode_i                 ( rnd_mode_q               ),
-    .effective_subtraction_i    ( 1'b0  ), // TODO: Check if this is correct
+    .effective_subtraction_i    ( 1'b0 ), // Effective subtraction is not implemented as RNE is used
     .abs_rounded_o              ( rounded_abs              ),
     .sign_o                     ( rounded_sign             ),
     .exact_zero_o               ( result_zero              )
@@ -860,8 +856,8 @@ module fpnew_sdotp_scale_multi #(
   fpnew_pkg::status_t   status_d;
 
   // Select output depending on special case detection
-  assign result_d = result_is_special_q ? special_result_q : ((result_is_accumulator | sum_magnitude == '0) ? operand_d_q2 : regular_result);
-  assign status_d = result_is_special_q ? special_status_q : ((result_is_accumulator | sum_magnitude == '0) ? fpnew_pkg::status_t'(0) : regular_status);
+  assign result_d = result_is_special_q ? special_result_q : (result_is_accumulator ? operand_d_q2 : regular_result);
+  assign status_d = result_is_special_q ? special_status_q : (result_is_accumulator ? fpnew_pkg::status_t'(0) : regular_status);
 
   // ----------------
   // Output Pipeline
