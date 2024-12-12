@@ -28,7 +28,7 @@ module fpnew_sdotp_scale_multi #(
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig),
   localparam int unsigned SCALE_WIDTH = 8,
   parameter int unsigned VECTOR_SIZE = 4,
-  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+2,
+  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+1, // scale is not included
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS
 ) (
   input  logic                        clk_i,
@@ -291,7 +291,7 @@ module fpnew_sdotp_scale_multi #(
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_dst_ops  ),
         .is_boxed_i  ( dst_ops_is_boxed ),
-        .info_o      ( info_q[fmt][NUM_OPERANDS-1]   )
+        .info_o      ( info_q[fmt][NUM_OPERANDS-1] )
       );
       assign trimmed_dst_ops          = operand_d_q[FP_WIDTH-1:0];
       assign fmt_dst_sign[fmt]        = operand_d_q[FP_WIDTH-1];
@@ -299,23 +299,18 @@ module fpnew_sdotp_scale_multi #(
       assign fmt_dst_mantissa[fmt]    = {info_q[fmt][NUM_OPERANDS-1].is_normal, operand_d_q[MAN_BITS-1:0]}
                                          << (SUPER_DST_MAN_BITS - MAN_BITS);
     end else begin : inactive_dst_format
-      assign info_q[fmt][NUM_OPERANDS-1]        = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign info_q[fmt][NUM_OPERANDS-1] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_dst_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
       assign fmt_dst_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_dst_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
     end
   end
 
-  // -------------------
-  // TODO: Scale operand (can be nan)
-  // -------------------
-
-
   // -------------------------------------------
   // Operation selection and operand adjustment
   // -------------------------------------------
   fp_src_t [VECTOR_SIZE-1:0] operands_a, operands_b;
-  logic [SCALE_WIDTH-1:0] operand_c;
+  logic signed [SCALE_WIDTH-1:0] operand_c;
   fp_dst_t             operand_d;
   fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_a, info_b;
   fpnew_pkg::fp_info_t info_c, info_d;
@@ -334,9 +329,9 @@ module fpnew_sdotp_scale_multi #(
       info_a[i]     = info_q[src_fmt_q][i];
       info_b[i]     = info_q[src_fmt_q][i+VECTOR_SIZE];
     end
-    operand_c = operand_c_q;
+    operand_c = signed'(operand_c_q) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
     operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
-    info_c    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
+    info_c    = '{is_normal: 1'b1, is_nan: operand_c_q == 2**SCALE_WIDTH-1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value, scale can be NaN
     info_d    = info_q[dst_fmt_q][NUM_OPERANDS-1];
 
     // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
@@ -624,7 +619,6 @@ module fpnew_sdotp_scale_multi #(
   assign signed_mantissa_d = operand_d_q2.sign ? -mantissa_d : mantissa_d;
 
   // Calculate the shift amount for the accumulator
-  // TODO: Check if scale comes signed or with bias
   assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(operand_c_q2)
                                      + signed'(exponent_d + info_d_q.is_subnormal)
                                      - signed'(fpnew_pkg::bias(dst_fmt_q2));
