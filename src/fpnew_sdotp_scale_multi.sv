@@ -98,9 +98,8 @@ module fpnew_sdotp_scale_multi #(
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
   localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
   localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
-  // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
-  localparam int unsigned SHIFT_AMOUNT_WIDTH = 7;
-  localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
+  // Shift amount width: $clog2(DST_BIAS - ANCHOR + scale + FIXED_SUM_WIDTH - 1)
+  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH-1) - 1 + FIXED_SUM_WIDTH - 1);
 
   // Pipelines
   localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
