@@ -28,8 +28,8 @@ package fpnew_sdotp_scale_multi_pkg;
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
   localparam int unsigned SCALE_WIDTH = 8;
-  localparam int unsigned VECTOR_SIZE = 4;
-  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+2;
+  localparam int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
+  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+1; // scale is not included
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
   // ----------
   // Constants
@@ -64,9 +64,8 @@ package fpnew_sdotp_scale_multi_pkg;
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
   localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
   localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
-  // TODO: Shift amount width: maximum internal mantissa size is 2*DST_PRECISION_BITS+3 bits
-  localparam int unsigned SHIFT_AMOUNT_WIDTH = 7;
-  localparam int unsigned DST_SHIFT_AMOUNT_WIDTH = $clog2(2*DST_PRECISION_BITS+PRECISION_BITS+5);
+  // Shift amount width: $clog2(DST_BIAS - ANCHOR + scale + FIXED_SUM_WIDTH - 1)
+  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH-1) - 1 + FIXED_SUM_WIDTH - 1);
 
   // Pipelines
   localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
@@ -126,7 +125,6 @@ module classifier
   // -----------------
   // Source operands
   // -----------------
-
   logic        [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0]                     fmt_sign;
   logic signed [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0][SUPER_EXP_BITS-1:0] fmt_exponent;
   logic        [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0][SUPER_MAN_BITS-1:0] fmt_mantissa;
@@ -194,7 +192,7 @@ module classifier
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_dst_ops  ),
         .is_boxed_i  ( dst_ops_is_boxed ),
-        .info_o      ( info_q[fmt][NUM_OPERANDS-1]   )
+        .info_o      ( info_q[fmt][NUM_OPERANDS-1] )
       );
       assign trimmed_dst_ops          = operand_d_q[FP_WIDTH-1:0];
       assign fmt_dst_sign[fmt]        = operand_d_q[FP_WIDTH-1];
@@ -202,17 +200,12 @@ module classifier
       assign fmt_dst_mantissa[fmt]    = {info_q[fmt][NUM_OPERANDS-1].is_normal, operand_d_q[MAN_BITS-1:0]}
                                          << (SUPER_DST_MAN_BITS - MAN_BITS);
     end else begin : inactive_dst_format
-      assign info_q[fmt][NUM_OPERANDS-1]        = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign info_q[fmt][NUM_OPERANDS-1] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_dst_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
       assign fmt_dst_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_dst_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
     end
   end
-
-  // -------------------
-  // TODO: Scale operand (can be nan)
-  // -------------------
-
 
   // -------------------------------------------
   // Operation selection and operand adjustment
@@ -232,9 +225,9 @@ module classifier
       info_a[i]     = info_q[src_fmt_q][i];
       info_b[i]     = info_q[src_fmt_q][i+VECTOR_SIZE];
     end
-    operand_c = operand_c_q;
+    operand_c = signed'(operand_c_q) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
     operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
-    info_c    = '{is_normal: 1'b1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value.
+    info_c    = '{is_normal: 1'b1, is_nan: operand_c_q == 2**SCALE_WIDTH-1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value, scale can be NaN
     info_d    = info_q[dst_fmt_q][NUM_OPERANDS-1];
 
     // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
@@ -472,11 +465,11 @@ module accumulator_shift
 #(
 ) (
   // Input signals
-  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product,
-  input logic [SCALE_WIDTH-1:0] operand_c,
-  input  fp_dst_t operand_d,
-  input  fpnew_pkg::fp_info_t info_d,
-  input fpnew_pkg::fp_format_e dst_fmt_q,
+  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q,
+  input logic [SCALE_WIDTH-1:0] operand_c_q2,
+  input  fp_dst_t operand_d_q2,
+  input  fpnew_pkg::fp_info_t info_d_q,
+  input fpnew_pkg::fp_format_e dst_fmt_q2,
   output logic result_is_accumulator,
   output logic accumulator_is_right_shifted,
   output logic signed [9:0] accumulator_right_shift_amount,
@@ -496,15 +489,14 @@ module accumulator_shift
   logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted, sum_product_accumulator;
 
   // Zero-extend exponents into signed container - implicit width extension
-  assign exponent_d = {1'b0, operand_d.exponent};
-  assign mantissa_d = {info_d.is_normal, operand_d.mantissa};
-  assign signed_mantissa_d = operand_d.sign ? -mantissa_d : mantissa_d;
+  assign exponent_d = {1'b0, operand_d_q2.exponent};
+  assign mantissa_d = {info_d_q.is_normal, operand_d_q2.mantissa};
+  assign signed_mantissa_d = operand_d_q2.sign ? -mantissa_d : mantissa_d;
 
   // Calculate the shift amount for the accumulator
-  // TODO: Check if scale comes signed or with bias
-  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(operand_c)
-                                     + signed'(exponent_d + info_d.is_subnormal)
-                                     - signed'(fpnew_pkg::bias(dst_fmt_q));
+  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(operand_c_q2)
+                                     + signed'(exponent_d + info_d_q.is_subnormal)
+                                     - signed'(fpnew_pkg::bias(dst_fmt_q2));
 
   always_comb begin : accumulator_shift
     result_is_accumulator = 1'b0;
@@ -523,7 +515,7 @@ module accumulator_shift
       accumulator_right_shift_amount = -accumulator_shift_amount;
       accumulator_shifted = signed'(signed_mantissa_d) >>> accumulator_right_shift_amount;
       if (accumulator_right_shift_amount > DST_PRECISION_BITS) begin
-        result_is_accumulator = (sum_product == '0) ? 1'b1 : 1'b0;
+        result_is_accumulator = (sum_product_q == '0) ? 1'b1 : 1'b0;
         accumulator_remaining = signed'(signed_mantissa_d) >>> (accumulator_right_shift_amount - DST_PRECISION_BITS);
         accumulator_sticky = |(signed'(signed_mantissa_d) & ((1 << (accumulator_right_shift_amount - DST_PRECISION_BITS)) - 1));
       end else begin
@@ -533,7 +525,7 @@ module accumulator_shift
     end
   end
 
-  assign sum_product_accumulator = sum_product + accumulator_shifted;
+  assign sum_product_accumulator = sum_product_q + accumulator_shifted;
   assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};
 endmodule
 
@@ -566,44 +558,6 @@ module twos_compl
   end
 endmodule
 
-module twos_compl_2
-  import fpnew_sdotp_scale_multi_pkg::*;
-#(
-) (
-  // Input signals
-  input  logic [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
-  input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
-  input  logic accumulator_is_right_shifted,
-  input  logic signed [9:0] accumulator_right_shift_amount,
-  input  logic final_sign,
-  // Output signals
-  output logic [LZC_SUM_WIDTH-1:0] sum_magnitude
-);
-  // ------------------
-  // Two's complement
-  // ------------------
-
-  logic [LZC_SUM_WIDTH-1:0] complemented_sum;
-
-  // Precompute complement to avoid redundant operations
-  assign complemented_sum = ~sum_product_accumulator_extended;
-
-  always_comb begin
-    if (final_sign) begin
-      // Apply two's complement or direct complement based on conditions
-      if (accumulator_is_right_shifted && 
-          accumulator_right_shift_amount > DST_PRECISION_BITS && 
-          signed_mantissa_d != 0) begin
-        sum_magnitude = complemented_sum;  // Direct complement
-      end else begin
-        sum_magnitude = complemented_sum + 1;  // Two's complement
-      end
-    end else begin
-      sum_magnitude = sum_product_accumulator_extended;  // No complement needed
-    end
-  end
-endmodule
-
 module norm_shift
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
@@ -622,31 +576,6 @@ module norm_shift
   assign sum_shifted = sum_magnitude << norm_shamt;
 endmodule
 
-module norm_barrel_shift
-  import fpnew_sdotp_scale_multi_pkg::*;
-#(
-) (
-  // Input signals
-  input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
-  input  logic [SHIFT_AMOUNT_WIDTH-1:0] norm_shamt,
-  // Output signals
-  output logic [LZC_SUM_WIDTH-1:0] sum_shifted
-);
-  // Intermediate signals for each stage of the barrel shifter
-  logic [LZC_SUM_WIDTH-1:0] stage [SHIFT_AMOUNT_WIDTH:0];
-  assign stage[0] = sum_magnitude;
-
-  // Generate each stage of the barrel shifter
-  generate
-    for (genvar i = 0; i < SHIFT_AMOUNT_WIDTH; i++) begin
-      assign stage[i+1] = norm_shamt[i] ? (stage[i] << (1 << i)) : stage[i];
-    end
-  endgenerate
-
-  // Final shifted output
-  assign sum_shifted = stage[SHIFT_AMOUNT_WIDTH];
-endmodule
-
 module normalizer
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
@@ -657,8 +586,8 @@ module normalizer
   input  logic signed [9:0] accumulator_right_shift_amount,
   input  logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
   input  logic accumulator_sticky,
-  input  logic [SCALE_WIDTH-1:0] operand_c_q,
-  input  fpnew_pkg::fp_format_e dst_fmt_q,
+  input  logic [SCALE_WIDTH-1:0] operand_c_q2,
+  input  fpnew_pkg::fp_format_e dst_fmt_q2,
   // Output signals
   output logic final_sign,
   output logic signed [DST_EXP_WIDTH-1:0] final_exponent,
@@ -711,17 +640,17 @@ module normalizer
   // Calculate the biased exponent (excess-127 form)
   // The exponent-major is -scaled_anchor
   // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent
-  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q)) - (signed'(ANCHOR)-signed'(operand_c_q)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
+  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q2)) - (signed'(ANCHOR)-signed'(operand_c_q2)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount
     // Subnormals
-    if (final_tentative_exponent <= 0) begin
-      norm_shamt          = leading_zero_count_sgn + final_tentative_exponent;
-      normalized_exponent = '0; // subnormals encoded as 0
-    end else begin
+    if (final_tentative_exponent > 0 && !lzc_zeroes) begin
       norm_shamt          = leading_zero_count_sgn + 1;
       normalized_exponent = final_tentative_exponent;
+    end else begin // Subnormals and zero
+      norm_shamt          = leading_zero_count_sgn + final_tentative_exponent;
+      normalized_exponent = '0; // subnormals encoded as 0
     end
   end
 
@@ -748,7 +677,7 @@ module rounder
   input  logic [DST_PRECISION_BITS-1:0] final_mantissa,
   input  logic [LZC_SUM_WIDTH-1:0] sum_magnitude,
   input  logic sticky_after_norm,
-  input fpnew_pkg::fp_format_e dst_fmt_q,
+  input fpnew_pkg::fp_format_e dst_fmt_q2,
   input fpnew_pkg::roundmode_e rnd_mode_q,
   // Output signals
   output logic [NUM_FORMATS-1:0][DST_WIDTH-1:0] fmt_result,
@@ -777,7 +706,7 @@ module rounder
   logic                                             result_zero;
 
   // Classification before round. RISC-V mandates checking underflow AFTER rounding
-  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt_q))-1; // infinity exponent is all ones
+  assign of_before_round = final_exponent >= 2**(fpnew_pkg::exp_bits(dst_fmt_q2))-1; // infinity exponent is all ones
   assign uf_before_round = final_exponent == 0;               // exponent for subnormals capped to 0
 
   // Pack exponent and mantissa into proper rounding form
@@ -815,13 +744,10 @@ module rounder
   end
 
   // Assemble result before rounding. In case of overflow, the largest normal value is set.
-  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt_q];
+  assign pre_round_abs      = fmt_pre_round_abs[dst_fmt_q2];
 
   // In case of overflow, the round and sticky bits are set for proper rounding
-  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q];
-  // TODO: Check for zeros
-  // assign pre_round_sign     = (info_max_is_zero_q && (pre_round_abs == '0) && (| round_sticky_bits))
-  //                             ? final_sign_zero_q : final_sign_z;
+  assign round_sticky_bits  = fmt_round_sticky_bits[dst_fmt_q2];
   assign pre_round_sign     = final_sign;
 
   // Perform the rounding
@@ -837,7 +763,7 @@ module rounder
     .round_sticky_bits_i        ( round_sticky_bits        ),
     .stochastic_rounding_bits_i ( '0                       ),
     .rnd_mode_i                 ( rnd_mode_q               ),
-    .effective_subtraction_i    ( 1'b0  ), // TODO: Check if this is correct
+    .effective_subtraction_i    ( 1'b0 ), // Effective subtraction is not implemented as RNE is used
     .abs_rounded_o              ( rounded_abs              ),
     .sign_o                     ( rounded_sign             ),
     .exact_zero_o               ( result_zero              )
@@ -868,7 +794,7 @@ module rounder
   end
 
   // Classification after rounding select by destination format
-  assign uf_after_round = fmt_uf_after_round[dst_fmt_q];
-  assign of_after_round = fmt_of_after_round[dst_fmt_q];
+  assign uf_after_round = fmt_uf_after_round[dst_fmt_q2];
+  assign of_after_round = fmt_of_after_round[dst_fmt_q2];
 endmodule
 
