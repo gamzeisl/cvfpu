@@ -22,3 +22,6 @@ build:
 
 tb_fpnew_sdotp_scale_multi: lib build
 	cd $(buildpath) && $(VSIM) $(VSIM_FLAGS) -do 'source ../tb_fpnew_sdotp_scale_multi.tcl'
+
+tb_fpnew: lib build
+	cd $(buildpath) && $(VSIM) $(VSIM_FLAGS) -do 'source ../tb_fpnew.tcl'
