@@ -105,7 +105,7 @@ module fpnew_sdotp_scale_multi_wrapper #(
       local_src_fmt_operand_c[fmt] = '1;
       local_src_fmt_operand_d[fmt] = '1;
 
-      local_src_fmt_operand_c[fmt] = 127; // operands_i[2][FP_WIDTH_DST_MIN+:SCALE_WIDTH];
+      local_src_fmt_operand_c[fmt] = operands_i[2][FP_WIDTH_DST_MIN+:SCALE_WIDTH];
       local_src_fmt_operand_d[fmt][FP_WIDTH_DST_MIN-1:0] = operands_i[2][FP_WIDTH_DST_MIN-1:0];
 
       for (int i = 0; i < VECTOR_SIZE; i++) begin
