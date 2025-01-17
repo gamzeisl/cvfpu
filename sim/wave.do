@@ -4,7 +4,7 @@ add wave -noupdate /tb_fpnew_sdotp_scale_multi/clk_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/rst_ni
 add wave -noupdate -radix binary -childformat {{{/tb_fpnew_sdotp_scale_multi/operands_a_i[3]} -radix binary} {{/tb_fpnew_sdotp_scale_multi/operands_a_i[2]} -radix binary} {{/tb_fpnew_sdotp_scale_multi/operands_a_i[1]} -radix binary} {{/tb_fpnew_sdotp_scale_multi/operands_a_i[0]} -radix binary}} -expand -subitemconfig {{/tb_fpnew_sdotp_scale_multi/operands_a_i[3]} {-height 17 -radix binary} {/tb_fpnew_sdotp_scale_multi/operands_a_i[2]} {-height 17 -radix binary} {/tb_fpnew_sdotp_scale_multi/operands_a_i[1]} {-height 17 -radix binary} {/tb_fpnew_sdotp_scale_multi/operands_a_i[0]} {-height 17 -radix binary}} /tb_fpnew_sdotp_scale_multi/operands_a_i
 add wave -noupdate -radix binary -childformat {{{/tb_fpnew_sdotp_scale_multi/operands_b_i[3]} -radix binary} {{/tb_fpnew_sdotp_scale_multi/operands_b_i[2]} -radix binary} {{/tb_fpnew_sdotp_scale_multi/operands_b_i[1]} -radix binary} {{/tb_fpnew_sdotp_scale_multi/operands_b_i[0]} -radix binary}} -expand -subitemconfig {{/tb_fpnew_sdotp_scale_multi/operands_b_i[3]} {-height 17 -radix binary} {/tb_fpnew_sdotp_scale_multi/operands_b_i[2]} {-height 17 -radix binary} {/tb_fpnew_sdotp_scale_multi/operands_b_i[1]} {-height 17 -radix binary} {/tb_fpnew_sdotp_scale_multi/operands_b_i[0]} {-height 17 -radix binary}} /tb_fpnew_sdotp_scale_multi/operands_b_i
-add wave -noupdate /tb_fpnew_sdotp_scale_multi/operand_c_i
+add wave -noupdate /tb_fpnew_sdotp_scale_multi/operands_c_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/operand_d_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/is_boxed_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/rnd_mode_i
@@ -34,7 +34,6 @@ add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/clk_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/rst_ni
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operands_a_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operands_b_i
-add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operand_c_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operand_d_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/is_boxed_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/rnd_mode_i
@@ -59,7 +58,6 @@ add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/out_ready_i
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/busy_o
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operands_a_q
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operands_b_q
-add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operand_c_q
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/operand_d_q
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/src_fmt_q
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/dst_fmt_q
@@ -75,6 +73,9 @@ add wave -noupdate -radix unsigned -childformat {{{/tb_fpnew_sdotp_scale_multi/d
 add wave -noupdate -radix unsigned -childformat {{{/tb_fpnew_sdotp_scale_multi/dut/operands_b[3]} -radix unsigned} {{/tb_fpnew_sdotp_scale_multi/dut/operands_b[2]} -radix unsigned} {{/tb_fpnew_sdotp_scale_multi/dut/operands_b[1]} -radix unsigned} {{/tb_fpnew_sdotp_scale_multi/dut/operands_b[0]} -radix unsigned}} -expand -subitemconfig {{/tb_fpnew_sdotp_scale_multi/dut/operands_b[3]} {-height 17 -radix unsigned} {/tb_fpnew_sdotp_scale_multi/dut/operands_b[2]} {-height 17 -radix unsigned} {/tb_fpnew_sdotp_scale_multi/dut/operands_b[1]} {-height 17 -radix unsigned} {/tb_fpnew_sdotp_scale_multi/dut/operands_b[0]} {-height 17 -radix unsigned}} /tb_fpnew_sdotp_scale_multi/dut/operands_b
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/info_a
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/info_b
+add wave -noupdate -radix unsigned /tb_fpnew_sdotp_scale_multi/dut/operands_c_q
+add wave -noupdate -radix decimal /tb_fpnew_sdotp_scale_multi/dut/operands_c
+add wave -noupdate -radix decimal /tb_fpnew_sdotp_scale_multi/dut/scale
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/info_c
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/info_d
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/any_operand_inf
@@ -102,7 +103,6 @@ add wave -noupdate -radix decimal /tb_fpnew_sdotp_scale_multi/dut/product_signed
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/exponent_product
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/shifted_product
 add wave -noupdate /tb_fpnew_sdotp_scale_multi/dut/sum_product
-add wave -noupdate -radix decimal /tb_fpnew_sdotp_scale_multi/dut/operand_c
 add wave -noupdate -childformat {{/tb_fpnew_sdotp_scale_multi/dut/operand_d.exponent -radix unsigned}} -expand -subitemconfig {/tb_fpnew_sdotp_scale_multi/dut/operand_d.exponent {-height 17 -radix unsigned}} /tb_fpnew_sdotp_scale_multi/dut/operand_d
 add wave -noupdate -radix decimal /tb_fpnew_sdotp_scale_multi/dut/accumulator_shift_amount
 add wave -noupdate -radix decimal /tb_fpnew_sdotp_scale_multi/shift_acc
@@ -128,7 +128,7 @@ add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/activ
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/active_dst_format/i_fpnew_classifier/info_o}
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/active_dst_format/i_fpnew_classifier/gen_num_values[0]/value}
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {43887 ps} 0}
+WaveRestoreCursors {{Cursor 1} {60000 ps} 0}
 quietly wave cursor active 1
 configure wave -namecolwidth 150
 configure wave -valuecolwidth 100
@@ -144,4 +144,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ns
 update
-WaveRestoreZoom {30142 ps} {64630 ps}
+WaveRestoreZoom {56949 ps} {77261 ps}

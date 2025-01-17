@@ -36,7 +36,7 @@ module fpnew_sdotp_scale_multi #(
   // Input signals
   input  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   operands_a_i, // 4 operands
   input  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   operands_b_i, // 4 operands
-  input  logic [SCALE_WIDTH-1:0]      operand_c_i, // 1 operand
+  input  logic [1:0][SCALE_WIDTH-1:0] operands_c_i, // 2 operands
   input  logic [DST_WIDTH-1:0]        operand_d_i, // 1 operand, accumulator
   input  logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i,
   input  fpnew_pkg::roundmode_e       rnd_mode_i,
@@ -98,8 +98,8 @@ module fpnew_sdotp_scale_multi #(
   // In most reasonable FP formats the internal exponent will be wider than the LZC result.
   localparam int unsigned EXP_WIDTH = SUPER_EXP_BITS + 1;
   localparam int unsigned DST_EXP_WIDTH = SUPER_DST_EXP_BITS + 2; // +2 for overflow handling
-  // Shift amount width: $clog2(DST_BIAS - ANCHOR + scale + FIXED_SUM_WIDTH - 1)
-  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH-1) - 1 + FIXED_SUM_WIDTH - 1);
+  // Shift amount width: $clog2(DST_BIAS - ANCHOR + (scale_a+scale_b) + FIXED_SUM_WIDTH - 1)
+  localparam int unsigned SHIFT_AMOUNT_WIDTH = $clog2(fpnew_pkg::bias(fpnew_pkg::FP32) - ANCHOR + 2**(SCALE_WIDTH) - 1 + FIXED_SUM_WIDTH - 1);
 
   // Pipelines
   localparam NUM_INP_REGS = PipeConfig == fpnew_pkg::BEFORE
@@ -138,15 +138,15 @@ module fpnew_sdotp_scale_multi #(
   // Selected pipeline output signals as non-arrays
   logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_a_q;
   logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_b_q;
-  logic [SCALE_WIDTH-1:0]    operand_c_q;
-  logic [DST_WIDTH-1:0]      operand_d_q;
+  logic [1:0][SCALE_WIDTH-1:0] operands_c_q;
+  logic [DST_WIDTH-1:0] operand_d_q;
   fpnew_pkg::fp_format_e src_fmt_q;
   fpnew_pkg::fp_format_e dst_fmt_q;
 
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
   logic                  [0:NUM_INP_REGS][VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_b_q;
-  logic                  [0:NUM_INP_REGS][SCALE_WIDTH-1:0]      inp_pipe_operand_c_q;
+  logic                  [0:NUM_INP_REGS][1:0][SCALE_WIDTH-1:0] inp_pipe_operands_c_q;
   logic                  [0:NUM_INP_REGS][DST_WIDTH-1:0]        inp_pipe_operand_d_q;
   logic                  [0:NUM_INP_REGS][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q;
   fpnew_pkg::roundmode_e [0:NUM_INP_REGS]                       inp_pipe_rnd_mode_q;
@@ -164,7 +164,7 @@ module fpnew_sdotp_scale_multi #(
   // Input stage: First element of pipeline is taken from inputs
   assign inp_pipe_operands_a_q[0]   = operands_a_i;
   assign inp_pipe_operands_b_q[0]   = operands_b_i;
-  assign inp_pipe_operand_c_q[0]    = operand_c_i;
+  assign inp_pipe_operands_c_q[0]   = operands_c_i;
   assign inp_pipe_operand_d_q[0]    = operand_d_i;
   assign inp_pipe_is_boxed_q[0]     = is_boxed_i;
   assign inp_pipe_rnd_mode_q[0]     = rnd_mode_i;
@@ -193,7 +193,7 @@ module fpnew_sdotp_scale_multi #(
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(inp_pipe_operands_a_q[i+1],   inp_pipe_operands_a_q[i],   reg_ena, '0)
     `FFL(inp_pipe_operands_b_q[i+1],   inp_pipe_operands_b_q[i],   reg_ena, '0)
-    `FFL(inp_pipe_operand_c_q[i+1],    inp_pipe_operand_c_q[i],    reg_ena, '0)
+    `FFL(inp_pipe_operands_c_q[i+1],   inp_pipe_operands_c_q[i],   reg_ena, '0)
     `FFL(inp_pipe_operand_d_q[i+1],    inp_pipe_operand_d_q[i],    reg_ena, '0)
     `FFL(inp_pipe_is_boxed_q[i+1],     inp_pipe_is_boxed_q[i],     reg_ena, '0)
     `FFL(inp_pipe_rnd_mode_q[i+1],     inp_pipe_rnd_mode_q[i],     reg_ena, fpnew_pkg::RNE)
@@ -208,7 +208,7 @@ module fpnew_sdotp_scale_multi #(
   // Output stage: assign selected pipe outputs to signals for later use
   assign operands_a_q   = inp_pipe_operands_a_q[NUM_INP_REGS];
   assign operands_b_q   = inp_pipe_operands_b_q[NUM_INP_REGS];
-  assign operand_c_q    = inp_pipe_operand_c_q[NUM_INP_REGS];
+  assign operands_c_q   = inp_pipe_operands_c_q[NUM_INP_REGS];
   assign operand_d_q    = inp_pipe_operand_d_q[NUM_INP_REGS];
   assign src_fmt_q      = inp_pipe_src_fmt_q[NUM_INP_REGS];
   assign dst_fmt_q      = inp_pipe_dst_fmt_q[NUM_INP_REGS];
@@ -309,10 +309,11 @@ module fpnew_sdotp_scale_multi #(
   // Operation selection and operand adjustment
   // -------------------------------------------
   fp_src_t [VECTOR_SIZE-1:0] operands_a, operands_b;
-  logic signed [SCALE_WIDTH-1:0] operand_c;
+  logic signed [1:0][SCALE_WIDTH-1:0] operands_c;
   fp_dst_t             operand_d;
   fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_a, info_b;
-  fpnew_pkg::fp_info_t info_c, info_d;
+  fpnew_pkg::fp_info_t [1:0] info_c;
+  fpnew_pkg::fp_info_t info_d;
 
   // | \c op_q  | \c op_mod_q | Operation Adjustment
   // |:--------:|:-----------:|---------------------
@@ -328,9 +329,11 @@ module fpnew_sdotp_scale_multi #(
       info_a[i]     = info_q[src_fmt_q][i];
       info_b[i]     = info_q[src_fmt_q][i+VECTOR_SIZE];
     end
-    operand_c = signed'(operand_c_q) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
+    for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
+      operands_c[i] = signed'(operands_c_q[i]) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
+      info_c[i] = '{is_normal: 1'b1, is_nan: operands_c_q[i] == 2**SCALE_WIDTH-1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value, scale can be NaN
+    end
     operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
-    info_c    = '{is_normal: 1'b1, is_nan: operand_c_q == 2**SCALE_WIDTH-1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value, scale can be NaN
     info_d    = info_q[dst_fmt_q][NUM_OPERANDS-1];
 
     // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
@@ -385,8 +388,8 @@ module fpnew_sdotp_scale_multi #(
 
   // Reduction for final results
   assign any_operand_inf = |operand_inf_conditions || info_d.is_inf;
-  assign any_operand_nan = |operand_nan_conditions || info_c.is_nan || info_d.is_nan;
-  assign signalling_nan  = |signalling_nan_conditions || info_c.is_signalling || info_d.is_signalling;
+  assign any_operand_nan = |operand_nan_conditions || info_c[0].is_nan || info_c[1].is_nan || info_d.is_nan;
+  assign signalling_nan  = |signalling_nan_conditions || info_c[0].is_signalling || info_c[1].is_signalling || info_d.is_signalling;
   assign any_produced_nan = |nan_conditions;
   assign any_pos_inf = |pos_inf_conditions || (info_d.is_inf && ~operand_d.sign);
   assign any_neg_inf = |neg_inf_conditions || (info_d.is_inf && operand_d.sign);
@@ -467,6 +470,13 @@ module fpnew_sdotp_scale_multi #(
   assign special_result = fmt_special_result[dst_fmt_q];
 
   // ------------------
+  // Scale data path
+  // ------------------
+  logic signed [SCALE_WIDTH:0] scale; // +1 for addition
+
+  assign scale = signed'(operands_c[0]) + signed'(operands_c[1]);
+
+  // ------------------
   // Product data path
   // ------------------
   logic [VECTOR_SIZE-1:0][  PRECISION_BITS-1:0] mantissa_a, mantissa_b;
@@ -518,7 +528,7 @@ module fpnew_sdotp_scale_multi #(
   // ---------------
   // Pipeline output signals as non-arrays
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q;
-  logic [SCALE_WIDTH-1:0]            operand_c_q2;
+  logic [SCALE_WIDTH:0]              scale_q2;
   fp_dst_t                           operand_d_q2;
   fpnew_pkg::fp_info_t               info_d_q;
   fpnew_pkg::fp_format_e             dst_fmt_q2;
@@ -528,7 +538,7 @@ module fpnew_sdotp_scale_multi #(
   fpnew_pkg::status_t                special_status_q;
   // Internal pipeline signals, index i holds signal after i register stages
   logic signed           [0:NUM_MID_REGS][FIXED_SUM_WIDTH-1:0]    mid_pipe_sum_product_q;
-  logic                  [0:NUM_MID_REGS][SCALE_WIDTH-1:0]        mid_pipe_operand_c_q;
+  logic                  [0:NUM_MID_REGS][SCALE_WIDTH:0]          mid_pipe_scale_q;
   fp_dst_t               [0:NUM_MID_REGS]                         mid_pipe_operand_d_q;
   fpnew_pkg::fp_info_t   [0:NUM_MID_REGS]                         mid_pipe_info_d_q;
   fpnew_pkg::fp_format_e [0:NUM_MID_REGS]                         mid_pipe_dst_fmt_q;
@@ -545,7 +555,7 @@ module fpnew_sdotp_scale_multi #(
 
   // Input stage: First element of pipeline is taken from upstream logic
   assign mid_pipe_sum_product_q[0] = sum_product;
-  assign mid_pipe_operand_c_q[0]   = operand_c;
+  assign mid_pipe_scale_q[0]       = scale;
   assign mid_pipe_operand_d_q[0]   = operand_d;
   assign mid_pipe_info_d_q[0]      = info_d;
   assign mid_pipe_dst_fmt_q[0]     = dst_fmt_q;
@@ -574,7 +584,7 @@ module fpnew_sdotp_scale_multi #(
     assign reg_ena = mid_pipe_ready[i] & mid_pipe_valid_q[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(mid_pipe_sum_product_q[i+1], mid_pipe_sum_product_q[i], reg_ena, '0)
-    `FFL(mid_pipe_operand_c_q[i+1],   mid_pipe_operand_c_q[i],   reg_ena, '0)
+    `FFL(mid_pipe_scale_q[i+1],       mid_pipe_scale_q[i],       reg_ena, '0)
     `FFL(mid_pipe_operand_d_q[i+1],   mid_pipe_operand_d_q[i],   reg_ena, '0)
     `FFL(mid_pipe_info_d_q[i+1],      mid_pipe_info_d_q[i],      reg_ena, '0)
     `FFL(mid_pipe_dst_fmt_q[i+1],     mid_pipe_dst_fmt_q[i],     reg_ena, fpnew_pkg::fp_format_e'(0))
@@ -588,7 +598,7 @@ module fpnew_sdotp_scale_multi #(
   end
   // Output stage: assign selected pipe outputs to signals for later use
   assign sum_product_q           = mid_pipe_sum_product_q[NUM_MID_REGS];
-  assign operand_c_q2            = mid_pipe_operand_c_q[NUM_MID_REGS];
+  assign scale_q2                = mid_pipe_scale_q[NUM_MID_REGS];
   assign operand_d_q2            = mid_pipe_operand_d_q[NUM_MID_REGS];
   assign info_d_q                = mid_pipe_info_d_q[NUM_MID_REGS];
   assign dst_fmt_q2              = mid_pipe_dst_fmt_q[NUM_MID_REGS];
@@ -617,8 +627,8 @@ module fpnew_sdotp_scale_multi #(
   assign mantissa_d = {info_d_q.is_normal, operand_d_q2.mantissa};
   assign signed_mantissa_d = operand_d_q2.sign ? -mantissa_d : mantissa_d;
 
-  // Calculate the shift amount for the accumulator
-  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(operand_c_q2)
+  // Calculate the shift amount for the accumulator, range=[-370,394-9b -> signed 10b]
+  assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(scale_q2)
                                      + signed'(exponent_d + info_d_q.is_subnormal)
                                      - signed'(fpnew_pkg::bias(dst_fmt_q2));
 
@@ -700,8 +710,8 @@ module fpnew_sdotp_scale_multi #(
 
   // Calculate the biased exponent (excess-127 form)
   // The exponent-major is -scaled_anchor
-  // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent
-  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q2)) - (signed'(ANCHOR)-signed'(operand_c_q2)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
+  // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent [-195, 315 9b -> 10b signed]
+  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q2)) - (signed'(ANCHOR)-signed'(scale_q2)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount

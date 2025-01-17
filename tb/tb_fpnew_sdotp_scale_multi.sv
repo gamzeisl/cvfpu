@@ -34,7 +34,7 @@ module tb_fpnew_sdotp_scale_multi;
   // Input signals
   logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_a_i;
   logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_b_i;
-  logic [SCALE_WIDTH-1:0] operand_c_i;
+  logic [1:0][SCALE_WIDTH-1:0] operands_c_i;
   logic [DST_WIDTH-1:0] operand_d_i;
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i;
   fpnew_pkg::roundmode_e rnd_mode_i;
@@ -93,7 +93,7 @@ module tb_fpnew_sdotp_scale_multi;
     .rst_ni(rst_ni),
     .operands_a_i(operands_a_i),
     .operands_b_i(operands_b_i),
-    .operand_c_i(operand_c_i),
+    .operands_c_i(operands_c_i),
     .operand_d_i(operand_d_i),
     .is_boxed_i(is_boxed_i),
     .rnd_mode_i(rnd_mode_i),
@@ -187,8 +187,8 @@ module tb_fpnew_sdotp_scale_multi;
           line = line.substr(SRC_WIDTH + 1, line.len()-1);
         end
 
-        r = $sscanf(line, "%b,%b,%b,%d,%d,%d,%d,%b,%d", 
-                    operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
+        r = $sscanf(line, "%b,%b,%b,%b,%d,%d,%d,%d,%b,%d", 
+                    operands_c_i[0], operands_c_i[1], operand_d_i, expected_result, sum_prod, shift_acc, 
                     shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
 
         count_applied++;
