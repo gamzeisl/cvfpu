@@ -77,7 +77,7 @@ module fpnew_sdotp_scale_multi_wrapper #(
   // -----------------
   logic                             [NUM_FORMATS-1:0][VECTOR_SIZE-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_a;  // lane-local operands
   logic                             [NUM_FORMATS-1:0][VECTOR_SIZE-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_b;  // lane-local operands
-  logic                             [NUM_FORMATS-1:0][SCALE_WIDTH-1:0] local_src_fmt_operand_c;  // lane-local operands
+  logic                             [NUM_FORMATS-1:0][1:0][SCALE_WIDTH-1:0] local_src_fmt_operand_c;  // lane-local operands
   logic                             [NUM_FORMATS-1:0][DST_WIDTH-1:0] local_src_fmt_operand_d;  // lane-local operands
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] local_is_boxed;  // lane-local operands
   logic                                          [OPERAND_WIDTH-1:0] local_result;  // lane-local operands
@@ -105,7 +105,8 @@ module fpnew_sdotp_scale_multi_wrapper #(
       local_src_fmt_operand_c[fmt] = '1;
       local_src_fmt_operand_d[fmt] = '1;
 
-      local_src_fmt_operand_c[fmt] = operands_i[2][FP_WIDTH_DST_MIN+:SCALE_WIDTH];
+      local_src_fmt_operand_c[fmt][1] = operands_i[2][(FP_WIDTH_DST_MIN+SCALE_WIDTH)+:SCALE_WIDTH];
+      local_src_fmt_operand_c[fmt][0] = operands_i[2][FP_WIDTH_DST_MIN+:SCALE_WIDTH];
       local_src_fmt_operand_d[fmt][FP_WIDTH_DST_MIN-1:0] = operands_i[2][FP_WIDTH_DST_MIN-1:0];
 
       for (int i = 0; i < VECTOR_SIZE; i++) begin
@@ -144,7 +145,7 @@ module fpnew_sdotp_scale_multi_wrapper #(
     .rst_ni,
     .operands_a_i     ( local_src_fmt_operand_a[src_fmt_i] ),
     .operands_b_i     ( local_src_fmt_operand_b[src_fmt_i] ),
-    .operand_c_i     ( local_src_fmt_operand_c[dst_fmt_i] ),
+    .operands_c_i     ( local_src_fmt_operand_c[dst_fmt_i] ),
     .operand_d_i     ( local_src_fmt_operand_d[dst_fmt_i] ),
     .is_boxed_i      ( local_is_boxed                     ),
     .rnd_mode_i,
