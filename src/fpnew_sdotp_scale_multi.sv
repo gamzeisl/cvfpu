@@ -242,7 +242,8 @@ module fpnew_sdotp_scale_multi #(
       // Classify input
       fpnew_classifier #(
         .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-        .NumOperands ( 2*VECTOR_SIZE                )
+        .NumOperands ( 2*VECTOR_SIZE                ),
+        .MX          ( 1                            ) // E4M3 special case
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_ops                                 ),
         .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*VECTOR_SIZE-1:0] ),
