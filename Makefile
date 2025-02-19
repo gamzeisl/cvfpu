@@ -20,7 +20,7 @@ BENDER_TARGETS = -t tb
 target ?= tb_fpnew_sdotp_scale_multi
 
 src_fmt ?= FP8
-vector_size ?= 4
+vector_size ?= 8
 num_pipe_regs ?= 3
 prob_stall ?= 10 # 10% stall probability
 num_vectors ?= 100

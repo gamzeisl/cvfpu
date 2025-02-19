@@ -4,7 +4,7 @@ module tb_fpnew_sdotp_scale_multi;
   // Simulation inputs
   string stim_file = `STIM_FILE;
   fpnew_pkg::fp_format_e SRC_FMT = (`SRC_FMT == "FP8") ? fpnew_pkg::FP8 : fpnew_pkg::FP8ALT;
-  parameter int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
+  parameter int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 8 `endif;
   parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
   parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
   parameter int unsigned NUM_VECTORS = `NUM_VECTORS;
