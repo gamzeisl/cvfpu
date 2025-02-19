@@ -16,7 +16,7 @@
 module fpnew_classifier #(
   parameter fpnew_pkg::fp_format_e   FpFormat = fpnew_pkg::fp_format_e'(0),
   parameter int unsigned             NumOperands = 1,
-  parameter int unsigned             MX = 0,
+  parameter int unsigned             MX = 1,
   // Do not change
   localparam int unsigned WIDTH = fpnew_pkg::fp_width(FpFormat)
 ) (
