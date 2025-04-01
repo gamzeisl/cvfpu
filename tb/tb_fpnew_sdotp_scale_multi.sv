@@ -3,7 +3,12 @@
 module tb_fpnew_sdotp_scale_multi;
   // Simulation inputs
   string stim_file = `STIM_FILE;
-  fpnew_pkg::fp_format_e SRC_FMT = (`SRC_FMT == "FP8") ? fpnew_pkg::FP8 : fpnew_pkg::FP8ALT;
+  fpnew_pkg::fp_format_e SRC_FMT = (`SRC_FMT == "FP8") ? fpnew_pkg::FP8 : 
+                                    (`SRC_FMT == "FP8ALT") ? fpnew_pkg::FP8ALT : 
+                                    (`SRC_FMT == "FP6") ? fpnew_pkg::FP6 : 
+                                    (`SRC_FMT == "FP6ALT") ? fpnew_pkg::FP6ALT : 
+                                    (`SRC_FMT == "FP4") ? fpnew_pkg::FP4 : 
+                                    fpnew_pkg::FP8;
   parameter int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 8 `endif;
   parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
   parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
@@ -11,8 +16,8 @@ module tb_fpnew_sdotp_scale_multi;
 
   // Parameters for the module
   parameter fpnew_pkg::pipe_config_t PipeConfig = fpnew_pkg::DISTRIBUTED;
-  parameter fpnew_pkg::fmt_logic_t SrcDotpFpFmtConfig = 6'b000101; // Supported source formats (FP8, FP8ALT)
-  parameter fpnew_pkg::fmt_logic_t DstDotpFpFmtConfig = 6'b100000; // Supported destination formats (FP32)
+  parameter fpnew_pkg::fmt_logic_t SrcDotpFpFmtConfig = 9'b000101111; // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
+  parameter fpnew_pkg::fmt_logic_t DstDotpFpFmtConfig = 9'b100000000; // Supported destination formats (FP32)
 
   parameter type TagType = logic;
   parameter type AuxType = logic;

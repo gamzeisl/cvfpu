@@ -60,6 +60,11 @@ module fpnew_classifier #(
         is_inf    = 0;
         is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa == '1));
         is_normal = is_boxed && (value.exponent != '0) && !is_nan;
+      end else if (MX == 1 && (FpFormat == fpnew_pkg::fp_format_e'(6) || FpFormat == fpnew_pkg::fp_format_e'(7) || FpFormat == fpnew_pkg::fp_format_e'(8))) begin
+        // No inf or nan in E3M2, E2M3, E2M1
+        is_inf    = 0;
+        is_nan    = 0;
+        is_normal = is_boxed && (value.exponent != '0);
       end else begin
         is_inf    = is_boxed && ((value.exponent == '1) && (value.mantissa == '0));
         is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa != '0));

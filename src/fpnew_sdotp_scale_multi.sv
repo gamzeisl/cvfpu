@@ -16,9 +16,9 @@
 `include "common_cells/registers.svh"
 
 module fpnew_sdotp_scale_multi #(
-  // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT |
-  parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 6'b000101, // Supported source formats (FP8, FP8ALT)
-  parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 6'b100000, // Supported destination formats (FP32)
+  // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
+  parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111, // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
+  parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100000000, // Supported destination formats (FP32)
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
