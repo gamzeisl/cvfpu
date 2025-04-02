@@ -127,6 +127,23 @@ add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/activ
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/active_dst_format/i_fpnew_classifier/is_boxed_i}
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/active_dst_format/i_fpnew_classifier/info_o}
 add wave -noupdate {/tb_fpnew_sdotp_scale_multi/dut/fmt_dst_init_inputs[0]/active_dst_format/i_fpnew_classifier/gen_num_values[0]/value}
+add wave -position insertpoint  \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_operands_post_inp_pipe \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_fmt_sign \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_fmt_exponent \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_fmt_mantissa \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_info_q \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_operands_a \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_operands_b \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_info_a \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_info_b \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_mantissa_a \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_mantissa_b \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_product \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_product_signed \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_exponent_product \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_shifted_product \
+sim:/tb_fpnew_sdotp_scale_multi/dut/fp4_shift_amount
 TreeUpdate [SetDefaultTree]
 WaveRestoreCursors {{Cursor 1} {60000 ps} 0}
 quietly wave cursor active 1

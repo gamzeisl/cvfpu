@@ -215,7 +215,17 @@ module fpnew_sdotp_scale_multi #(
   assign dst_fmt_q      = inp_pipe_dst_fmt_q[NUM_INP_REGS];
 
   logic [2*VectorSize-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe;
-  assign operands_post_inp_pipe = {operands_b_q, operands_a_q};
+  logic [2*VectorSize-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe;
+
+  always_comb begin
+    fp4_operands_post_inp_pipe = '0;
+    operands_post_inp_pipe = {operands_b_q, operands_a_q};
+    if (src_fmt_q == fpnew_pkg::FP4) begin
+      for (int i = 0; i < 2*VectorSize; i++) begin
+        fp4_operands_post_inp_pipe[i] = {{(SRC_WIDTH-4){1'b0}}, operands_post_inp_pipe[i][7:4]};
+      end
+    end
+  end
 
   // -----------------
   // Input processing
@@ -230,6 +240,13 @@ module fpnew_sdotp_scale_multi #(
 
   fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] info_q;
 
+  // FP4
+  logic        [2*VectorSize-1:0]                     fp4_fmt_sign;
+  logic signed [2*VectorSize-1:0][SUPER_EXP_BITS-1:0] fp4_fmt_exponent;
+  logic        [2*VectorSize-1:0][SUPER_MAN_BITS-1:0] fp4_fmt_mantissa;
+
+  fpnew_pkg::fp_info_t [2*VectorSize-1:0] fp4_info_q;
+
   // FP Input initialization (Src)
   for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fmt_src_init_inputs
     // Set up some constants
@@ -243,8 +260,8 @@ module fpnew_sdotp_scale_multi #(
       // Classify input
       fpnew_classifier #(
         .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-        .NumOperands ( 2*VectorSize                ),
-        .MX          ( 1                            ) // E4M3 special case
+        .NumOperands ( 2*VectorSize                 ),
+        .MX          ( 1                            )
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_ops                                 ),
         .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*VectorSize-1:0] ),
@@ -262,6 +279,40 @@ module fpnew_sdotp_scale_multi #(
       assign fmt_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
       assign fmt_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+    end
+  end
+
+  for (genvar fmt = 8; fmt < int'(NUM_FORMATS); fmt++) begin : fp4_fmt_src_init_inputs
+    // Set up some constants
+    localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
+    localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
+
+    if (SrcDotpFpFmtConfig[fmt]) begin : active_src_format
+      logic [2*VectorSize-1:0][FP_WIDTH-1:0] trimmed_ops;
+
+      // Classify input
+      fpnew_classifier #(
+        .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
+        .NumOperands ( 2*VectorSize                 ),
+        .MX          ( 1                            )
+      ) i_fpnew_classifier (
+        .operands_i  ( trimmed_ops                                 ),
+        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*VectorSize-1:0] ),
+        .info_o      ( fp4_info_q[2*VectorSize-1:0]                            )
+      );
+      for (genvar op = 0; op < 2*VectorSize; op++) begin : gen_operands
+        assign trimmed_ops[op]      = fp4_operands_post_inp_pipe[op][FP_WIDTH-1:0];
+        assign fp4_fmt_sign[op]     = fp4_operands_post_inp_pipe[op][FP_WIDTH-1];
+        assign fp4_fmt_exponent[op] = signed'({1'b0, fp4_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS]});
+        assign fp4_fmt_mantissa[op] = {fp4_info_q[op].is_normal, fp4_operands_post_inp_pipe[op][MAN_BITS-1:0]} <<
+                                       (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
+      end
+    end else begin : inactive_src_format
+      assign fp4_info_q[2*VectorSize-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign fp4_fmt_sign     = fpnew_pkg::DONT_CARE;             // format disabled
+      assign fp4_fmt_exponent = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign fp4_fmt_mantissa = '{default: fpnew_pkg::DONT_CARE}; // format disabled
     end
   end
 
@@ -317,6 +368,9 @@ module fpnew_sdotp_scale_multi #(
   fpnew_pkg::fp_info_t [1:0] info_c;
   fpnew_pkg::fp_info_t info_d;
 
+  fp_src_t [VectorSize-1:0] fp4_operands_a, fp4_operands_b;
+  fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_a, fp4_info_b;
+
   // | \c op_q  | \c op_mod_q | Operation Adjustment
   // |:--------:|:-----------:|---------------------
   // | SDOTPS    | \c 0       | SDOTPS:  none
@@ -330,6 +384,17 @@ module fpnew_sdotp_scale_multi #(
       operands_b[i] = {fmt_sign[src_fmt_q][i+VectorSize], fmt_exponent[src_fmt_q][i+VectorSize], fmt_mantissa[src_fmt_q][i+VectorSize]};
       info_a[i]     = info_q[src_fmt_q][i];
       info_b[i]     = info_q[src_fmt_q][i+VectorSize];
+
+      fp4_operands_a[i] = '0;
+      fp4_operands_b[i] = '0;
+      fp4_info_a[i]     = '0;
+      fp4_info_b[i]     = '0;
+      if (src_fmt_q == fpnew_pkg::FP4) begin
+        fp4_operands_a[i] = {fp4_fmt_sign[i], fp4_fmt_exponent[i], fp4_fmt_mantissa[i]};
+        fp4_operands_b[i] = {fp4_fmt_sign[i+VectorSize], fp4_fmt_exponent[i+VectorSize], fp4_fmt_mantissa[i+VectorSize]};
+        fp4_info_a[i]     = fp4_info_q[i];
+        fp4_info_b[i]     = fp4_info_q[i+VectorSize];
+      end
     end
     for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
       operands_c[i] = signed'(operands_c_q[i]) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
@@ -341,6 +406,8 @@ module fpnew_sdotp_scale_multi #(
     // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
     for (int i = 0; i < VectorSize; i++) begin : gen_op_mod_q
       operands_a[i].sign = operands_a[i].sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
+      if (src_fmt_q == fpnew_pkg::FP4)
+        fp4_operands_a[i].sign = fp4_operands_a[i].sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
     end
   end
 
@@ -485,12 +552,31 @@ module fpnew_sdotp_scale_multi #(
   logic [VectorSize-1:0][2*PRECISION_BITS-1:0] product;  // the p*p product is 2p-bit wide
   logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
 
+  logic [VectorSize-1:0][  PRECISION_BITS-1:0] fp4_mantissa_a, fp4_mantissa_b;
+  logic [VectorSize-1:0][2*PRECISION_BITS-1:0] fp4_product;  // the p*p product is 2p-bit wide
+  logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] fp4_product_signed;  // two's complement product
+
   // Add implicit bits to mantissae
   for (genvar i = 0; i < VectorSize; i++) begin : gen_mantissa
     assign mantissa_a[i] = {info_a[i].is_normal, operands_a[i].mantissa};
     assign mantissa_b[i] = {info_b[i].is_normal, operands_b[i].mantissa};
     assign product[i]    = mantissa_a[i] * mantissa_b[i];
     assign product_signed[i] = (operands_a[i].sign ^ operands_b[i].sign) ? -product[i] : product[i];
+  end
+
+  for (genvar i = 0; i < VectorSize; i++) begin : gen_fp4_mantissa
+    always_comb begin
+      fp4_mantissa_a[i]     = '0;
+      fp4_mantissa_b[i]     = '0;
+      fp4_product[i]        = '0;
+      fp4_product_signed[i] = '0;
+      if (src_fmt_q == fpnew_pkg::FP4) begin
+        fp4_mantissa_a[i] = {fp4_info_a[i].is_normal, fp4_operands_a[i].mantissa};
+        fp4_mantissa_b[i] = {fp4_info_b[i].is_normal, fp4_operands_b[i].mantissa};
+        fp4_product[i]    = fp4_mantissa_a[i] * fp4_mantissa_b[i];
+        fp4_product_signed[i] = (fp4_operands_a[i].sign ^ fp4_operands_b[i].sign) ? -fp4_product[i] : fp4_product[i];
+      end
+    end
   end
 
   // ------------------
@@ -512,6 +598,22 @@ module fpnew_sdotp_scale_multi #(
     assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
   end
 
+  logic signed [VectorSize-1:0][EXP_WIDTH-1:0] fp4_exponent_product;
+  logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] fp4_shifted_product;
+  logic [VectorSize-1:0][  5:0] fp4_shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
+
+  // Calculate the non-biased exponent of the product
+  for (genvar i = 0; i < VectorSize; i++) begin : gen_fp4_exponent_adjustment
+    assign fp4_exponent_product[i] = fp4_operands_a[i].exponent + fp4_info_a[i].is_subnormal
+                                + fp4_operands_b[i].exponent + fp4_info_b[i].is_subnormal 
+                                - 2*signed'(fpnew_pkg::bias(src_fmt_q));
+    // Right shift the significand by anchor point - exponent
+    // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
+    // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
+    assign fp4_shift_amount[i] = signed'(SOP_SHIFT) + signed'(fp4_exponent_product[i]);
+    assign fp4_shifted_product[i] = signed'(fp4_product_signed[i]) << fp4_shift_amount[i];
+  end
+
   // ------------------
   // Adder data path
   // ------------------
@@ -522,6 +624,9 @@ module fpnew_sdotp_scale_multi #(
     sum_product = '0;
     for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
+      if (src_fmt_q == fpnew_pkg::FP4) begin
+        sum_product += signed'(fp4_shifted_product[i]);
+      end
     end
   end
 
