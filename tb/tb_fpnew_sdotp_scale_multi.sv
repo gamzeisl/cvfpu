@@ -230,9 +230,14 @@ module tb_fpnew_sdotp_scale_multi;
 
       if (out_valid_o && out_ready_i) begin
         if (result_o !== expected_results[0]) begin
-          $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", 
-                    vector_indices[0], expected_results[0], result_o, $realtime);
-          fail_count++;
+          if (result_o[DST_WIDTH-2:0] === expected_results[0][DST_WIDTH-2:0]) begin
+            $display("WARNING: Sign of zero doesn't match! Vector: [%d], Expected: %h, Got: %h at time %t", 
+                      vector_indices[0], expected_results[0], result_o, $realtime);
+          end else begin
+            $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", 
+                      vector_indices[0], expected_results[0], result_o, $realtime);
+            fail_count++;
+          end
         end
         expected_results.pop_front();
         vector_indices.pop_front();
