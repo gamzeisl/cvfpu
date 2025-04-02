@@ -9,7 +9,7 @@ module tb_fpnew_sdotp_scale_multi;
                                     (`SRC_FMT == "FP6ALT") ? fpnew_pkg::FP6ALT : 
                                     (`SRC_FMT == "FP4") ? fpnew_pkg::FP4 : 
                                     fpnew_pkg::FP8;
-  parameter int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 8 `endif;
+  parameter int unsigned VectorSize = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 8 `endif;
   parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
   parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
   parameter int unsigned NUM_VECTORS = `NUM_VECTORS;
@@ -25,7 +25,7 @@ module tb_fpnew_sdotp_scale_multi;
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
   localparam int unsigned SCALE_WIDTH = 8;
-  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+1;
+  localparam int unsigned NUM_OPERANDS = 2*VectorSize+1;
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
 
   localparam int unsigned TCP = 10;  // Clock period in ns
@@ -37,8 +37,8 @@ module tb_fpnew_sdotp_scale_multi;
   logic rst_ni;
 
   // Input signals
-  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_a_i;
-  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_b_i;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i;
   logic [1:0][SCALE_WIDTH-1:0] operands_c_i;
   logic [DST_WIDTH-1:0] operand_d_i;
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i;
@@ -92,7 +92,7 @@ module tb_fpnew_sdotp_scale_multi;
     .PipeConfig(PipeConfig),
     .TagType(TagType),
     .AuxType(AuxType),
-    .VECTOR_SIZE(VECTOR_SIZE)
+    .VectorSize(VectorSize)
   ) dut (
     .clk_i(clk_i),
     .rst_ni(rst_ni),
@@ -183,11 +183,11 @@ module tb_fpnew_sdotp_scale_multi;
           continue;  // Skip empty lines
         end
 
-        for (int i = 0; i < VECTOR_SIZE; i++) begin
+        for (int i = 0; i < VectorSize; i++) begin
           r = $sscanf(line, "%b,", operands_a_i[i]);
           line = line.substr(SRC_WIDTH + 1, line.len()-1);
         end
-        for (int i = 0; i < VECTOR_SIZE; i++) begin
+        for (int i = 0; i < VectorSize; i++) begin
           r = $sscanf(line, "%b,", operands_b_i[i]);
           line = line.substr(SRC_WIDTH + 1, line.len()-1);
         end

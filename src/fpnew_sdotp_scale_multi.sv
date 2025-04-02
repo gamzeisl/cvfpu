@@ -19,6 +19,7 @@ module fpnew_sdotp_scale_multi #(
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
   parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111, // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
   parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100000000, // Supported destination formats (FP32)
+  parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
@@ -27,15 +28,15 @@ module fpnew_sdotp_scale_multi #(
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig),
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig),
   localparam int unsigned SCALE_WIDTH = 8,
-  parameter int unsigned VECTOR_SIZE = 8,
-  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+1, // scale is not included
+  
+  localparam int unsigned NUM_OPERANDS = 2*VectorSize+1, // scale is not included
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS
 ) (
   input  logic                        clk_i,
   input  logic                        rst_ni,
   // Input signals
-  input  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   operands_a_i, // 4 operands
-  input  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   operands_b_i, // 4 operands
+  input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i, // 4 operands
+  input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i, // 4 operands
   input  logic [1:0][SCALE_WIDTH-1:0] operands_c_i, // 2 operands
   input  logic [DST_WIDTH-1:0]        operand_d_i, // 1 operand, accumulator
   input  logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i,
@@ -85,7 +86,7 @@ module fpnew_sdotp_scale_multi #(
   // Algorithm constants
   localparam int unsigned ANCHOR = 34; // Fractional point position
   localparam int unsigned INT_BITS = 32;
-  localparam int unsigned VECTOR_BITS = $clog2(VECTOR_SIZE);
+  localparam int unsigned VECTOR_BITS = $clog2(VectorSize);
   localparam int unsigned SOP_FIXED_WIDTH = 1 + VECTOR_BITS + INT_BITS + ANCHOR;
   localparam int unsigned FIXED_SUM_WIDTH  = 1 + DST_PRECISION_BITS + 1 + (SOP_FIXED_WIDTH - 1); // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
   localparam int unsigned LZC_SUM_WIDTH    = FIXED_SUM_WIDTH + DST_PRECISION_BITS;
@@ -136,16 +137,16 @@ module fpnew_sdotp_scale_multi #(
   // Input pipeline
   // ---------------
   // Selected pipeline output signals as non-arrays
-  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_a_q;
-  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_b_q;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_q;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_q;
   logic [1:0][SCALE_WIDTH-1:0] operands_c_q;
   logic [DST_WIDTH-1:0] operand_d_q;
   fpnew_pkg::fp_format_e src_fmt_q;
   fpnew_pkg::fp_format_e dst_fmt_q;
 
   // Input pipeline signals, index i holds signal after i register stages
-  logic                  [0:NUM_INP_REGS][VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
-  logic                  [0:NUM_INP_REGS][VECTOR_SIZE-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_b_q;
+  logic                  [0:NUM_INP_REGS][VectorSize-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
+  logic                  [0:NUM_INP_REGS][VectorSize-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_b_q;
   logic                  [0:NUM_INP_REGS][1:0][SCALE_WIDTH-1:0] inp_pipe_operands_c_q;
   logic                  [0:NUM_INP_REGS][DST_WIDTH-1:0]        inp_pipe_operand_d_q;
   logic                  [0:NUM_INP_REGS][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q;
@@ -213,7 +214,7 @@ module fpnew_sdotp_scale_multi #(
   assign src_fmt_q      = inp_pipe_src_fmt_q[NUM_INP_REGS];
   assign dst_fmt_q      = inp_pipe_dst_fmt_q[NUM_INP_REGS];
 
-  logic [2*VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe;
+  logic [2*VectorSize-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe;
   assign operands_post_inp_pipe = {operands_b_q, operands_a_q};
 
   // -----------------
@@ -223,9 +224,9 @@ module fpnew_sdotp_scale_multi #(
   // -----------------
   // Source operands
   // -----------------
-  logic        [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0]                     fmt_sign;
-  logic signed [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0][SUPER_EXP_BITS-1:0] fmt_exponent;
-  logic        [NUM_FORMATS-1:0][2*VECTOR_SIZE-1:0][SUPER_MAN_BITS-1:0] fmt_mantissa;
+  logic        [NUM_FORMATS-1:0][2*VectorSize-1:0]                     fmt_sign;
+  logic signed [NUM_FORMATS-1:0][2*VectorSize-1:0][SUPER_EXP_BITS-1:0] fmt_exponent;
+  logic        [NUM_FORMATS-1:0][2*VectorSize-1:0][SUPER_MAN_BITS-1:0] fmt_mantissa;
 
   fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] info_q;
 
@@ -237,19 +238,19 @@ module fpnew_sdotp_scale_multi #(
     localparam int unsigned MAN_BITS = fpnew_pkg::man_bits(fpnew_pkg::fp_format_e'(fmt));
 
     if (SrcDotpFpFmtConfig[fmt]) begin : active_src_format
-      logic [2*VECTOR_SIZE-1:0][FP_WIDTH-1:0] trimmed_ops;
+      logic [2*VectorSize-1:0][FP_WIDTH-1:0] trimmed_ops;
 
       // Classify input
       fpnew_classifier #(
         .FpFormat    ( fpnew_pkg::fp_format_e'(fmt) ),
-        .NumOperands ( 2*VECTOR_SIZE                ),
+        .NumOperands ( 2*VectorSize                ),
         .MX          ( 1                            ) // E4M3 special case
       ) i_fpnew_classifier (
         .operands_i  ( trimmed_ops                                 ),
-        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*VECTOR_SIZE-1:0] ),
-        .info_o      ( info_q[fmt][2*VECTOR_SIZE-1:0]                            )
+        .is_boxed_i  ( inp_pipe_is_boxed_q[NUM_INP_REGS][fmt][2*VectorSize-1:0] ),
+        .info_o      ( info_q[fmt][2*VectorSize-1:0]                            )
       );
-      for (genvar op = 0; op < 2*VECTOR_SIZE; op++) begin : gen_operands
+      for (genvar op = 0; op < 2*VectorSize; op++) begin : gen_operands
         assign trimmed_ops[op]       = operands_post_inp_pipe[op][FP_WIDTH-1:0];
         assign fmt_sign[fmt][op]     = operands_post_inp_pipe[op][FP_WIDTH-1];
         assign fmt_exponent[fmt][op] = signed'({1'b0, operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS]});
@@ -257,7 +258,7 @@ module fpnew_sdotp_scale_multi #(
                                        (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
       end
     end else begin : inactive_src_format
-      assign info_q[fmt][2*VECTOR_SIZE-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
+      assign info_q[fmt][2*VectorSize-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_sign[fmt]     = fpnew_pkg::DONT_CARE;             // format disabled
       assign fmt_exponent[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
       assign fmt_mantissa[fmt] = '{default: fpnew_pkg::DONT_CARE}; // format disabled
@@ -309,10 +310,10 @@ module fpnew_sdotp_scale_multi #(
   // -------------------------------------------
   // Operation selection and operand adjustment
   // -------------------------------------------
-  fp_src_t [VECTOR_SIZE-1:0] operands_a, operands_b;
+  fp_src_t [VectorSize-1:0] operands_a, operands_b;
   logic signed [1:0][SCALE_WIDTH-1:0] operands_c;
   fp_dst_t             operand_d;
-  fpnew_pkg::fp_info_t [VECTOR_SIZE-1:0] info_a, info_b;
+  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a, info_b;
   fpnew_pkg::fp_info_t [1:0] info_c;
   fpnew_pkg::fp_info_t info_d;
 
@@ -324,11 +325,11 @@ module fpnew_sdotp_scale_multi #(
   // \note \c op_mod_q always inverts the sign of the addend.
   always_comb begin : op_select
     // Default assignments - packing-order-agnostic
-    for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_default_assignments
+    for (int i = 0; i < VectorSize; i++) begin : gen_default_assignments
       operands_a[i] = {fmt_sign[src_fmt_q][i], fmt_exponent[src_fmt_q][i], fmt_mantissa[src_fmt_q][i]};
-      operands_b[i] = {fmt_sign[src_fmt_q][i+VECTOR_SIZE], fmt_exponent[src_fmt_q][i+VECTOR_SIZE], fmt_mantissa[src_fmt_q][i+VECTOR_SIZE]};
+      operands_b[i] = {fmt_sign[src_fmt_q][i+VectorSize], fmt_exponent[src_fmt_q][i+VectorSize], fmt_mantissa[src_fmt_q][i+VectorSize]};
       info_a[i]     = info_q[src_fmt_q][i];
-      info_b[i]     = info_q[src_fmt_q][i+VECTOR_SIZE];
+      info_b[i]     = info_q[src_fmt_q][i+VectorSize];
     end
     for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
       operands_c[i] = signed'(operands_c_q[i]) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
@@ -338,7 +339,7 @@ module fpnew_sdotp_scale_multi #(
     info_d    = info_q[dst_fmt_q][NUM_OPERANDS-1];
 
     // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
-    for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_op_mod_q
+    for (int i = 0; i < VectorSize; i++) begin : gen_op_mod_q
       operands_a[i].sign = operands_a[i].sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
     end
   end
@@ -354,16 +355,16 @@ module fpnew_sdotp_scale_multi #(
   logic any_neg_inf;
 
   // Intermediate signals for each condition
-  logic [VECTOR_SIZE-1:0] operand_inf_conditions;
-  logic [VECTOR_SIZE-1:0] operand_nan_conditions;
-  logic [VECTOR_SIZE-1:0] signalling_nan_conditions;
-  logic [VECTOR_SIZE-1:0] nan_conditions;
-  logic [VECTOR_SIZE-1:0] pos_inf_conditions;
-  logic [VECTOR_SIZE-1:0] neg_inf_conditions;
+  logic [VectorSize-1:0] operand_inf_conditions;
+  logic [VectorSize-1:0] operand_nan_conditions;
+  logic [VectorSize-1:0] signalling_nan_conditions;
+  logic [VectorSize-1:0] nan_conditions;
+  logic [VectorSize-1:0] pos_inf_conditions;
+  logic [VectorSize-1:0] neg_inf_conditions;
 
   // Single generate block for all conditions
   generate
-    for (genvar i = 0; i < VECTOR_SIZE; i = i + 1) begin : gen_conditions
+    for (genvar i = 0; i < VectorSize; i = i + 1) begin : gen_conditions
       // Check if any operand is infinite
       assign operand_inf_conditions[i] = info_a[i].is_inf || info_b[i].is_inf;
       
@@ -480,12 +481,12 @@ module fpnew_sdotp_scale_multi #(
   // ------------------
   // Product data path
   // ------------------
-  logic [VECTOR_SIZE-1:0][  PRECISION_BITS-1:0] mantissa_a, mantissa_b;
-  logic [VECTOR_SIZE-1:0][2*PRECISION_BITS-1:0] product;  // the p*p product is 2p-bit wide
-  logic signed [VECTOR_SIZE-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
+  logic [VectorSize-1:0][  PRECISION_BITS-1:0] mantissa_a, mantissa_b;
+  logic [VectorSize-1:0][2*PRECISION_BITS-1:0] product;  // the p*p product is 2p-bit wide
+  logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
 
   // Add implicit bits to mantissae
-  for (genvar i = 0; i < VECTOR_SIZE; i++) begin : gen_mantissa
+  for (genvar i = 0; i < VectorSize; i++) begin : gen_mantissa
     assign mantissa_a[i] = {info_a[i].is_normal, operands_a[i].mantissa};
     assign mantissa_b[i] = {info_b[i].is_normal, operands_b[i].mantissa};
     assign product[i]    = mantissa_a[i] * mantissa_b[i];
@@ -495,12 +496,12 @@ module fpnew_sdotp_scale_multi #(
   // ------------------
   // Shift data path
   // ------------------
-  logic signed [VECTOR_SIZE-1:0][EXP_WIDTH-1:0] exponent_product;
-  logic signed [VECTOR_SIZE-1:0][SOP_FIXED_WIDTH-1:0] shifted_product;
-  logic [VECTOR_SIZE-1:0][  5:0] shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
+  logic signed [VectorSize-1:0][EXP_WIDTH-1:0] exponent_product;
+  logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product;
+  logic [VectorSize-1:0][  5:0] shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
 
   // Calculate the non-biased exponent of the product
-  for (genvar i = 0; i < VECTOR_SIZE; i++) begin : gen_exponent_adjustment
+  for (genvar i = 0; i < VectorSize; i++) begin : gen_exponent_adjustment
     assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
                                 + operands_b[i].exponent + info_b[i].is_subnormal 
                                 - 2*signed'(fpnew_pkg::bias(src_fmt_q));
@@ -519,7 +520,7 @@ module fpnew_sdotp_scale_multi #(
   // Sum the products
   always_comb begin : sum_products
     sum_product = '0;
-    for (int i = 0; i < VECTOR_SIZE; i++) begin : gen_sum_products
+    for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
     end
   end
