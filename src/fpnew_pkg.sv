@@ -71,10 +71,10 @@ package fpnew_pkg;
   typedef logic [0:NUM_FP_FORMATS-1]       fmt_logic_t;    // Logic indexed by FP format (for masks)
   typedef logic [0:NUM_FP_FORMATS-1][31:0] fmt_unsigned_t; // Unsigned indexed by FP format
 
-  localparam fmt_logic_t CPK_FORMATS  = 6'b110000; // FP32 and FP64 can provide CPK only
+  localparam fmt_logic_t CPK_FORMATS  = 9'b110000000; // FP32 and FP64 can provide CPK only
   // FP32, FP64 cannot be provided for DOTP
   // Small hack: FP32 only enabled for wide enough wrapper input widths for vsum.s instruction
-  localparam fmt_logic_t DOTP_FORMATS = 6'b101111;
+  localparam fmt_logic_t DOTP_FORMATS = 9'b101111000;
 
   // ---------
   // INT TYPES
@@ -244,7 +244,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b110000,
+    FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0011
   };
 
@@ -252,7 +252,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b110000,
+    FpFmtMask:     9'b110000000,
     IntFmtMask:    4'b0010
   };
 
@@ -260,7 +260,7 @@ package fpnew_pkg;
     Width:         32,
     EnableVectors: 1'b0,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b100000,
+    FpFmtMask:     9'b100000000,
     IntFmtMask:    4'b0010
   };
 
@@ -268,7 +268,7 @@ package fpnew_pkg;
     Width:         64,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b111111,
+    FpFmtMask:     9'b111111000,
     IntFmtMask:    4'b1111
   };
 
@@ -276,7 +276,7 @@ package fpnew_pkg;
     Width:         32,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b101111,
+    FpFmtMask:     9'b101111000,
     IntFmtMask:    4'b1110
   };
 
@@ -284,7 +284,7 @@ package fpnew_pkg;
     Width:         32,
     EnableVectors: 1'b1,
     EnableNanBox:  1'b1,
-    FpFmtMask:     6'b100010,
+    FpFmtMask:     9'b100010000,
     IntFmtMask:    4'b0110
   };
 
@@ -468,7 +468,7 @@ package fpnew_pkg;
     // Returns the maximum number of lanes in the FPU according to width, format config and vectors
   function automatic int unsigned num_divsqrt_lanes(int unsigned width, fmt_logic_t cfg, logic vec, divsqrt_unit_t DivSqrtSel);
     automatic fmt_logic_t cfg_tmp;
-    cfg_tmp = (DivSqrtSel == THMULTI) ? cfg & 6'b111010 : cfg;
+    cfg_tmp = (DivSqrtSel == THMULTI) ? cfg & 9'b111010000 : cfg;
     return vec ? width / min_fp_width(cfg_tmp) : 1; // if no vectors, only one lane
   endfunction
 
@@ -528,9 +528,9 @@ package fpnew_pkg;
     automatic fmt_logic_t mask;
     int unsigned nr_16to32bit_lanes = (cfg[FP32]) ? (width / 32) : 0;
     if (lane_no < nr_16to32bit_lanes)
-      mask = 6'b101111;  //lane should be 16-bit -> 32-bit
+      mask = 9'b101111000;  //lane should be 16-bit -> 32-bit
     else
-      mask = 6'b001111;  //lane should be  8-bit -> 16-bit
+      mask = 9'b001111000;  //lane should be  8-bit -> 16-bit
     res = cfg & mask;
     return res;
   endfunction
@@ -543,7 +543,10 @@ package fpnew_pkg;
             cfg[FP16] && (src_cfg[FP8] || src_cfg[FP8ALT]),
             cfg[FP8],                                           // FP8 supported as dstFmt for VSUM
             cfg[FP16ALT] && (src_cfg[FP8] || src_cfg[FP8ALT]),
-            cfg[FP8ALT]                                         // FP8ALT supported as dstFmt for VSUM
+            cfg[FP8ALT],                                        // FP8ALT supported as dstFmt for VSUM
+            1'b0,                                               // FP6 not supported as dstFmt
+            1'b0,                                               // FP6ALT not supported as dstFmt
+            1'b0                                                // FP4 not supported as dstFmt
     };
     return res;
   endfunction

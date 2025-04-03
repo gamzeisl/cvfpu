@@ -26,8 +26,8 @@ module fpnew_sdotp_scale_multi_wrapper #(
   parameter type                     AuxType     = logic,
   parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
   // Do not change
-  localparam fpnew_pkg::fmt_logic_t FpSrcFmtConfig = FpFmtConfig[0] ? (FpFmtConfig & 6'b000101) : (FpFmtConfig & 6'b000101),
-  localparam fpnew_pkg::fmt_logic_t FpDstFmtConfig = 6'b100000,
+  localparam fpnew_pkg::fmt_logic_t FpSrcFmtConfig = 9'b000101111, // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
+  localparam fpnew_pkg::fmt_logic_t FpDstFmtConfig = 9'b100000000, // Supported destination formats (FP32)
   localparam int                    SRC_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpSrcFmtConfig), 1),
   localparam int                    DST_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpDstFmtConfig), 1), // do not change, current assumption of sdotpex_multi
   localparam int                    OPERAND_WIDTH  = LaneWidth,
