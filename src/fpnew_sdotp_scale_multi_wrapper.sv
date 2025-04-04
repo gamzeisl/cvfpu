@@ -110,8 +110,16 @@ module fpnew_sdotp_scale_multi_wrapper #(
       local_src_fmt_operand_d[fmt][FP_WIDTH_DST_MIN-1:0] = operands_i[2][FP_WIDTH_DST_MIN-1:0];
 
       for (int i = 0; i < VECTOR_SIZE; i++) begin
-        local_src_fmt_operand_a[fmt][i] = operands_i[0][i*FP_WIDTH_MIN +: FP_WIDTH_MIN];
-        local_src_fmt_operand_b[fmt][i] = operands_i[1][i*FP_WIDTH_MIN +: FP_WIDTH_MIN];
+        if (fmt == fpnew_pkg::FP4) begin // Pack two FP4 into one FP8
+          local_src_fmt_operand_a[fmt][i] = operands_i[0][i*2*FP_WIDTH_MIN +: 2*FP_WIDTH_MIN];
+          local_src_fmt_operand_b[fmt][i] = operands_i[1][i*2*FP_WIDTH_MIN +: 2*FP_WIDTH_MIN];
+        end else if (fmt == fpnew_pkg::FP6 || fmt == fpnew_pkg::FP6ALT) begin // Assuming FP6 and FP6ALT are stored as FP8
+          local_src_fmt_operand_a[fmt][i] = operands_i[0][i*SRC_WIDTH +: FP_WIDTH_MIN];
+          local_src_fmt_operand_b[fmt][i] = operands_i[1][i*SRC_WIDTH +: FP_WIDTH_MIN];
+        end else begin
+          local_src_fmt_operand_a[fmt][i] = operands_i[0][i*FP_WIDTH_MIN +: FP_WIDTH_MIN];
+          local_src_fmt_operand_b[fmt][i] = operands_i[1][i*FP_WIDTH_MIN +: FP_WIDTH_MIN];
+        end
         local_is_boxed[fmt][i] = is_boxed_i[fmt][0];
         local_is_boxed[fmt][i+VECTOR_SIZE] = is_boxed_i[fmt][1];
       end
