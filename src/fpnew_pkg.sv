@@ -175,7 +175,7 @@ package fpnew_pkg;
 
   // CSR encoded alternate fp formats
   typedef struct packed {
-    logic src; // Source format selection
+    logic [2:0] src; // Source format selection
     logic dst; // Destination format selection
   } fmt_mode_t;
 
