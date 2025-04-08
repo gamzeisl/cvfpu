@@ -384,17 +384,11 @@ module fpnew_sdotp_scale_multi #(
       operands_b[i] = {fmt_sign[src_fmt_q][i+VectorSize], fmt_exponent[src_fmt_q][i+VectorSize], fmt_mantissa[src_fmt_q][i+VectorSize]};
       info_a[i]     = info_q[src_fmt_q][i];
       info_b[i]     = info_q[src_fmt_q][i+VectorSize];
-
-      fp4_operands_a[i] = '0;
-      fp4_operands_b[i] = '0;
-      fp4_info_a[i]     = '0;
-      fp4_info_b[i]     = '0;
-      if (src_fmt_q == fpnew_pkg::FP4) begin
-        fp4_operands_a[i] = {fp4_fmt_sign[i], fp4_fmt_exponent[i], fp4_fmt_mantissa[i]};
-        fp4_operands_b[i] = {fp4_fmt_sign[i+VectorSize], fp4_fmt_exponent[i+VectorSize], fp4_fmt_mantissa[i+VectorSize]};
-        fp4_info_a[i]     = fp4_info_q[i];
-        fp4_info_b[i]     = fp4_info_q[i+VectorSize];
-      end
+      // FP4
+      fp4_operands_a[i] = {fp4_fmt_sign[i], fp4_fmt_exponent[i], fp4_fmt_mantissa[i]};
+      fp4_operands_b[i] = {fp4_fmt_sign[i+VectorSize], fp4_fmt_exponent[i+VectorSize], fp4_fmt_mantissa[i+VectorSize]};
+      fp4_info_a[i]     = fp4_info_q[i];
+      fp4_info_b[i]     = fp4_info_q[i+VectorSize];
     end
     for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
       operands_c[i] = signed'(operands_c_q[i]) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
@@ -406,8 +400,7 @@ module fpnew_sdotp_scale_multi #(
     // op_mod_q inverts sign of operand A, thus inverting the sign of the dot product
     for (int i = 0; i < VectorSize; i++) begin : gen_op_mod_q
       operands_a[i].sign = operands_a[i].sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
-      if (src_fmt_q == fpnew_pkg::FP4)
-        fp4_operands_a[i].sign = fp4_operands_a[i].sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
+      fp4_operands_a[i].sign = fp4_operands_a[i].sign ^ inp_pipe_op_mod_q[NUM_INP_REGS];
     end
   end
 
@@ -565,18 +558,10 @@ module fpnew_sdotp_scale_multi #(
   end
 
   for (genvar i = 0; i < VectorSize; i++) begin : gen_fp4_mantissa
-    always_comb begin
-      fp4_mantissa_a[i]     = '0;
-      fp4_mantissa_b[i]     = '0;
-      fp4_product[i]        = '0;
-      fp4_product_signed[i] = '0;
-      if (src_fmt_q == fpnew_pkg::FP4) begin
-        fp4_mantissa_a[i] = {fp4_info_a[i].is_normal, fp4_operands_a[i].mantissa};
-        fp4_mantissa_b[i] = {fp4_info_b[i].is_normal, fp4_operands_b[i].mantissa};
-        fp4_product[i]    = fp4_mantissa_a[i] * fp4_mantissa_b[i];
-        fp4_product_signed[i] = (fp4_operands_a[i].sign ^ fp4_operands_b[i].sign) ? -fp4_product[i] : fp4_product[i];
-      end
-    end
+    assign fp4_mantissa_a[i] = {fp4_info_a[i].is_normal, fp4_operands_a[i].mantissa};
+    assign fp4_mantissa_b[i] = {fp4_info_b[i].is_normal, fp4_operands_b[i].mantissa};
+    assign fp4_product[i]    = fp4_mantissa_a[i] * fp4_mantissa_b[i];
+    assign fp4_product_signed[i] = (fp4_operands_a[i].sign ^ fp4_operands_b[i].sign) ? -fp4_product[i] : fp4_product[i];
   end
 
   // ------------------
@@ -624,9 +609,7 @@ module fpnew_sdotp_scale_multi #(
     sum_product = '0;
     for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
-      if (src_fmt_q == fpnew_pkg::FP4) begin
-        sum_product += signed'(fp4_shifted_product[i]);
-      end
+      sum_product += signed'(fp4_shifted_product[i]);
     end
   end
 
