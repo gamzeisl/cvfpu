@@ -253,20 +253,24 @@ module fpnew_sdotp_scale_multi_top #(
   // Product data path
   // ------------------
   logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
-  logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] fp4_product_signed;  // two's complement product
+  logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] fp4_product_signed;  // two's complement product TODO: change PREC_BITS
 
-  multiplier #(
-  ) i_multiplier (
+  vector_multiplier #(
+  ) i_vector_multiplier_fp8 (
     .operands_a(operands_a),
-    .fp4_operands_a(fp4_operands_a),
     .operands_b(operands_b),
-    .fp4_operands_b(fp4_operands_b),
     .info_a(info_a),
-    .fp4_info_a(fp4_info_a),
     .info_b(info_b),
-    .fp4_info_b(fp4_info_b),
-    .product_signed(product_signed),
-    .fp4_product_signed(fp4_product_signed)
+    .product_signed(product_signed)
+  );
+
+  vector_multiplier #(
+  ) i_vector_multiplier_fp4 (
+    .operands_a(fp4_operands_a),
+    .operands_b(fp4_operands_b),
+    .info_a(fp4_info_a),
+    .info_b(fp4_info_b),
+    .product_signed(fp4_product_signed)
   );
 
   // ------------------
@@ -278,34 +282,52 @@ module fpnew_sdotp_scale_multi_top #(
   logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] fp4_shifted_product;
   logic [VectorSize-1:0][  5:0] fp4_shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
 
-  shifter #(
-  ) i_shifter (
+  product_shifter #(
+  ) i_product_shifter_fp8 (
     .operands_a(operands_a),
-    .fp4_operands_a(fp4_operands_a),
     .operands_b(operands_b),
-    .fp4_operands_b(fp4_operands_b),
     .info_a(info_a),
-    .fp4_info_a(fp4_info_a),
     .info_b(info_b),
-    .fp4_info_b(fp4_info_b),
     .product_signed(product_signed),
-    .fp4_product_signed(fp4_product_signed),
     .src_fmt_q(src_fmt_q),
     .shift_amount(shift_amount),
-    .fp4_shift_amount(fp4_shift_amount),
-    .shifted_product(shifted_product),
-    .fp4_shifted_product(fp4_shifted_product)
+    .shifted_product(shifted_product)
+  );
+
+  product_shifter #(
+  ) i_product_shifter_fp4 (
+    .operands_a(fp4_operands_a),
+    .operands_b(fp4_operands_b),
+    .info_a(fp4_info_a),
+    .info_b(fp4_info_b),
+    .product_signed(fp4_product_signed),
+    .src_fmt_q(src_fmt_q),
+    .shift_amount(fp4_shift_amount),
+    .shifted_product(fp4_shifted_product)
   );
 
   // ------------------
   // Adder data path
   // ------------------
-  logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
+  // TODO: Add hierarchy to get optimized adder tree
+  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp8, sum_product_fp4, sum_product;
+
+  adder_tree #(
+  ) i_adder_tree_fp8 (
+    .shifted_product(shifted_product),
+    .sum_product(sum_product_fp8)
+  );
+
+  adder_tree #(
+  ) i_adder_tree_fp4 (
+    .shifted_product(fp4_shifted_product),
+    .sum_product(sum_product_fp4)
+  );
 
   adder #(
-  ) i_adder (
-    .shifted_product(shifted_product),
-    .fp4_shifted_product(fp4_shifted_product),
+  ) i_adder_fp8_fp4 (
+    .sum_product_fp8(sum_product_fp8),
+    .sum_product_fp4(sum_product_fp4),
     .sum_product(sum_product)
   );
 

@@ -451,30 +451,22 @@ module scale_adder
   assign scale = signed'(operands_c[0]) + signed'(operands_c[1]);
 endmodule
 
-module multiplier
+module vector_multiplier
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
 ) (
   // Input signals
   input  fp_src_t [VectorSize-1:0] operands_a,
-  input  fp_src_t [VectorSize-1:0] fp4_operands_a,
   input  fp_src_t [VectorSize-1:0] operands_b,
-  input  fp_src_t [VectorSize-1:0] fp4_operands_b,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_a,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_b,
-  output logic [VectorSize-1:0][2*PRECISION_BITS :0] product_signed,
-  output logic [VectorSize-1:0][2*PRECISION_BITS :0] fp4_product_signed
+  output logic [VectorSize-1:0][2*PRECISION_BITS :0] product_signed
 );
   // ------------------
   // Product data path
   // ------------------
   logic [VectorSize-1:0][  PRECISION_BITS-1:0] mantissa_a, mantissa_b;
   logic [VectorSize-1:0][2*PRECISION_BITS-1:0] product;  // the p*p product is 2p-bit wide
-
-  logic [VectorSize-1:0][  PRECISION_BITS-1:0] fp4_mantissa_a, fp4_mantissa_b;
-  logic [VectorSize-1:0][2*PRECISION_BITS-1:0] fp4_product;  // the p*p product is 2p-bit wide
 
   // Add implicit bits to mantissae
   for (genvar i = 0; i < VectorSize; i++) begin : gen_mantissa
@@ -483,35 +475,21 @@ module multiplier
     assign product[i]    = mantissa_a[i] * mantissa_b[i];
     assign product_signed[i] = (operands_a[i].sign ^ operands_b[i].sign) ? -product[i] : product[i];
   end
-
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_fp4_mantissa
-    assign fp4_mantissa_a[i] = {fp4_info_a[i].is_normal, fp4_operands_a[i].mantissa};
-    assign fp4_mantissa_b[i] = {fp4_info_b[i].is_normal, fp4_operands_b[i].mantissa};
-    assign fp4_product[i]    = fp4_mantissa_a[i] * fp4_mantissa_b[i];
-    assign fp4_product_signed[i] = (fp4_operands_a[i].sign ^ fp4_operands_b[i].sign) ? -fp4_product[i] : fp4_product[i];
-  end
 endmodule
 
-module shifter
+module product_shifter
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
 ) (
   // Input signals
   input  fp_src_t [VectorSize-1:0] operands_a,
-  input  fp_src_t [VectorSize-1:0] fp4_operands_a,
   input  fp_src_t [VectorSize-1:0] operands_b,
-  input  fp_src_t [VectorSize-1:0] fp4_operands_b,
   input  logic [VectorSize-1:0][2*PRECISION_BITS :0] product_signed,
-  input  logic [VectorSize-1:0][2*PRECISION_BITS :0] fp4_product_signed,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_a,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_b,
   input  fpnew_pkg::fp_format_e src_fmt_q,
   output logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product,
-  output logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] fp4_shifted_product,
-  output logic [VectorSize-1:0][5:0] shift_amount,
-  output logic [VectorSize-1:0][5:0] fp4_shift_amount
+  output logic [VectorSize-1:0][5:0] shift_amount
 );
   // ------------------
   // Shift data path
@@ -529,30 +507,14 @@ module shifter
     assign shift_amount[i] = signed'(SOP_SHIFT) + signed'(exponent_product[i]);
     assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
   end
-
-  logic signed [VectorSize-1:0][EXP_WIDTH-1:0] fp4_exponent_product;
-
-
-  // Calculate the non-biased exponent of the product
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_fp4_exponent_adjustment
-    assign fp4_exponent_product[i] = fp4_operands_a[i].exponent + fp4_info_a[i].is_subnormal
-                                + fp4_operands_b[i].exponent + fp4_info_b[i].is_subnormal 
-                                - 2*signed'(fpnew_pkg::bias(src_fmt_q));
-    // Right shift the significand by anchor point - exponent
-    // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
-    // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
-    assign fp4_shift_amount[i] = signed'(SOP_SHIFT) + signed'(fp4_exponent_product[i]);
-    assign fp4_shifted_product[i] = signed'(fp4_product_signed[i]) << fp4_shift_amount[i];
-  end
 endmodule
 
-module adder
+module adder_tree
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
 ) (
   // Input signals
   input  logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product,
-  input  logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] fp4_shifted_product,
   output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
 );
   // ------------------
@@ -563,9 +525,23 @@ module adder
     sum_product = '0;
     for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
-      sum_product += signed'(fp4_shifted_product[i]);
     end
   end
+endmodule
+
+module adder
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp8,
+  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp4,
+  output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
+);
+  // ------------------
+  // Adder data path
+  // ------------------
+  // Sum the products
+  assign sum_product = sum_product_fp8 + sum_product_fp4;
 endmodule
 
 module accumulator_shift

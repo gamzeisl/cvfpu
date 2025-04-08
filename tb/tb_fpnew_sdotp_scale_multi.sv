@@ -85,7 +85,7 @@ module tb_fpnew_sdotp_scale_multi;
   logic  [8:0] tb_final_exponent;
 
   // Instantiate the DUT (Device Under Test)
-  fpnew_sdotp_scale_multi #(
+  fpnew_sdotp_scale_multi_top #(
     .SrcDotpFpFmtConfig(SrcDotpFpFmtConfig),
     .DstDotpFpFmtConfig(DstDotpFpFmtConfig),
     .NumPipeRegs(NumPipeRegs),
