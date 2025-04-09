@@ -403,6 +403,16 @@ package fpnew_pkg;
     return unsigned'(2**(FP_ENCODINGS[fmt].exp_bits-1)-1); // symmetrical bias
   endfunction
 
+  function automatic int unsigned bias_constant(fp_format_e fmt);
+    case (fmt)
+      3: return 15; // 2^(5-1) - 1
+      5: return 7;
+      6: return 3;
+      7: return 1;
+      8: return 1;
+    endcase
+  endfunction
+
   function automatic fp_encoding_t super_format(fmt_logic_t cfg);
     automatic fp_encoding_t res;
     res = '0;

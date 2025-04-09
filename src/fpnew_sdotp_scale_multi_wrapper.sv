@@ -20,6 +20,7 @@
 module fpnew_sdotp_scale_multi_wrapper #(
   parameter int unsigned             LaneWidth   = 64,
   parameter fpnew_pkg::fmt_logic_t   FpFmtConfig = '1,
+  parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
@@ -30,6 +31,8 @@ module fpnew_sdotp_scale_multi_wrapper #(
   localparam fpnew_pkg::fmt_logic_t FpDstFmtConfig = 9'b100000000, // Supported destination formats (FP32)
   localparam int                    SRC_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpSrcFmtConfig), 1),
   localparam int                    DST_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpDstFmtConfig), 1), // do not change, current assumption of sdotpex_multi
+  localparam int unsigned           SCALE_WIDTH    = 8,
+  localparam int unsigned           NUM_OPERANDS   = 2*VectorSize+1, // scale is not included
   localparam int                    OPERAND_WIDTH  = LaneWidth,
   localparam int unsigned           NUM_FORMATS    = fpnew_pkg::NUM_FP_FORMATS
 ) (
@@ -64,19 +67,11 @@ module fpnew_sdotp_scale_multi_wrapper #(
   output logic                         busy_o
 );
 
-  // ----------
-  // Constants
-  // ----------
-
-  localparam int unsigned SCALE_WIDTH = 8;
-  parameter int unsigned VECTOR_SIZE = 8;
-  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+1; // scale is not included
-
   // -----------------
   // Input processing
   // -----------------
-  logic                             [NUM_FORMATS-1:0][VECTOR_SIZE-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_a;  // lane-local operands
-  logic                             [NUM_FORMATS-1:0][VECTOR_SIZE-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_b;  // lane-local operands
+  logic                             [NUM_FORMATS-1:0][VectorSize-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_a;  // lane-local operands
+  logic                             [NUM_FORMATS-1:0][VectorSize-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_b;  // lane-local operands
   logic                             [NUM_FORMATS-1:0][1:0][SCALE_WIDTH-1:0] local_src_fmt_operand_c;  // lane-local operands
   logic                             [NUM_FORMATS-1:0][DST_WIDTH-1:0] local_src_fmt_operand_d;  // lane-local operands
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] local_is_boxed;  // lane-local operands
@@ -109,7 +104,7 @@ module fpnew_sdotp_scale_multi_wrapper #(
       local_src_fmt_operand_c[fmt][0] = operands_i[2][FP_WIDTH_DST_MIN+:SCALE_WIDTH];
       local_src_fmt_operand_d[fmt][FP_WIDTH_DST_MIN-1:0] = operands_i[2][FP_WIDTH_DST_MIN-1:0];
 
-      for (int i = 0; i < VECTOR_SIZE; i++) begin
+      for (int i = 0; i < VectorSize; i++) begin
         if (fmt == fpnew_pkg::FP4) begin // Pack two FP4 into one FP8
           local_src_fmt_operand_a[fmt][i] = operands_i[0][i*2*FP_WIDTH_MIN +: 2*FP_WIDTH_MIN];
           local_src_fmt_operand_b[fmt][i] = operands_i[1][i*2*FP_WIDTH_MIN +: 2*FP_WIDTH_MIN];
@@ -121,10 +116,10 @@ module fpnew_sdotp_scale_multi_wrapper #(
           local_src_fmt_operand_b[fmt][i] = operands_i[1][i*FP_WIDTH_MIN +: FP_WIDTH_MIN];
         end
         local_is_boxed[fmt][i] = is_boxed_i[fmt][0];
-        local_is_boxed[fmt][i+VECTOR_SIZE] = is_boxed_i[fmt][1];
+        local_is_boxed[fmt][i+VectorSize] = is_boxed_i[fmt][1];
       end
 
-      local_is_boxed[fmt][2*VECTOR_SIZE] = is_boxed_i[fmt][2];
+      local_is_boxed[fmt][2*VectorSize] = is_boxed_i[fmt][2];
 
       // // take is_boxed info from external or set to 1 if boxed for dotp operation
       // local_is_boxed[fmt][0] = is_boxed_i[fmt][0];

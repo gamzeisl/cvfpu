@@ -478,6 +478,8 @@ module fpnew_sdotp_scale_multi_top #(
 
   rounder #(
   ) i_rounder (
+    .clk_i(clk_i),
+    .rst_ni(rst_ni),
     .final_sign(final_sign),
     .final_mantissa(final_mantissa),
     .final_exponent(final_exponent),

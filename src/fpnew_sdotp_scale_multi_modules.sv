@@ -17,18 +17,18 @@
 
 package fpnew_sdotp_scale_multi_pkg;
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
-  parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111; // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
-  parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100000000; // Supported destination formats (FP32)
-  parameter int unsigned             NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE;
-  parameter type                     TagType     = logic;
-  parameter type                     AuxType     = logic;
+  localparam fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111; // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
+  localparam fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100000000; // Supported destination formats (FP32)
+  localparam int unsigned             VectorSize = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
+  localparam int unsigned             NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
+  localparam fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE;
+  localparam type                     TagType     = logic;
+  localparam type                     AuxType     = logic;
 
   // Do not change
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
   localparam int unsigned SCALE_WIDTH = 8;
-  localparam int unsigned VectorSize = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif;
   localparam int unsigned NUM_OPERANDS = 2*VectorSize+1; // scale is not included
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
   // ----------
@@ -278,7 +278,7 @@ module classifier
       fp4_info_b[i]     = fp4_info_q[i+VectorSize];
     end
     for (int i = 0; i < 2; i++) begin : gen_default_assignments_c
-      operands_c[i] = signed'(operands_c_q[i]) - signed'(2**(SCALE_WIDTH-1)-1); // signed scale
+      operands_c[i] = signed'(operands_c_q[i]) - 127; // signed scale, 127 = signed'(2**(SCALE_WIDTH-1)-1)
       info_c[i] = '{is_normal: 1'b1, is_nan: operands_c_q[i] == 2**SCALE_WIDTH-1, is_boxed: 1'b1, default: 1'b0}; //normal, boxed value, scale can be NaN
     end
     operand_d = {fmt_dst_sign[dst_fmt_q], fmt_dst_exponent[dst_fmt_q], fmt_dst_mantissa[dst_fmt_q]};
@@ -500,7 +500,7 @@ module product_shifter
   for (genvar i = 0; i < VectorSize; i++) begin : gen_exponent_adjustment
     assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
                                 + operands_b[i].exponent + info_b[i].is_subnormal 
-                                - 2*signed'(fpnew_pkg::bias(src_fmt_q));
+                                - 2*signed'(fpnew_pkg::bias_constant(src_fmt_q));
     // Right shift the significand by anchor point - exponent
     // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
     // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
@@ -580,7 +580,7 @@ module accumulator_shift
   // Calculate the shift amount for the accumulator, range=[-370,394-9b -> signed 10b]
   assign accumulator_shift_amount = signed'(ANCHOR - SUPER_DST_MAN_BITS) - signed'(scale_q2)
                                      + signed'(exponent_d + info_d_q.is_subnormal)
-                                     - signed'(fpnew_pkg::bias(dst_fmt_q2));
+                                     - 127; // signed'(fpnew_pkg::bias(dst_fmt_q2))
 
   always_comb begin : accumulator_shift
     result_is_accumulator = 1'b0;
@@ -724,7 +724,7 @@ module normalizer
   // Calculate the biased exponent (excess-127 form)
   // The exponent-major is -scaled_anchor
   // exponent = 127 - scaled_anchor + (94-count-1) + increment_exponent [-195, 315 9b -> 10b signed]
-  assign final_tentative_exponent = signed'(fpnew_pkg::bias(dst_fmt_q2)) - (signed'(ANCHOR)-signed'(scale_q2)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1);
+  assign final_tentative_exponent = 127 - (signed'(ANCHOR)-signed'(scale_q2)) + (signed'(FIXED_SUM_WIDTH) - leading_zero_count_sgn - 1); // 127 = signed'(fpnew_pkg::bias(dst_fmt_q2))
 
   // Normalization shift amount based on exponents and LZC (unsigned as only left shifts)
   always_comb begin : norm_shift_amount
@@ -756,6 +756,8 @@ module rounder
 #(
 ) (
   // Input signals
+  input  logic clk_i,
+  input  logic rst_ni,
   input  logic final_sign,
   input  logic [DST_EXP_WIDTH-1:0] final_exponent,
   input  logic [DST_PRECISION_BITS-1:0] final_mantissa,

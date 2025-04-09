@@ -19,8 +19,8 @@ module fpnew_sdotp_scale_multi #(
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
   parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111, // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
   parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100000000, // Supported destination formats (FP32)
-  parameter int unsigned             VectorSize  = 8,
-  parameter int unsigned             NumPipeRegs = 0,
+  parameter int unsigned             VectorSize = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif,
+  parameter int unsigned             NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
