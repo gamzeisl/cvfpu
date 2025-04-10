@@ -580,27 +580,25 @@ module accumulator_shift
 ) (
   // Input signals
   input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q,
-  input logic [SCALE_WIDTH:0] scale_q2,
+  input  logic [SCALE_WIDTH:0] scale_q2,
   input  fp_dst_t operand_d_q2,
   input  fpnew_pkg::fp_info_t info_d_q,
-  input fpnew_pkg::fp_format_e dst_fmt_q2,
+  input  fpnew_pkg::fp_format_e dst_fmt_q2,
   output logic result_is_accumulator,
   output logic accumulator_is_right_shifted,
   output logic signed [9:0] accumulator_right_shift_amount,
-  output logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended,
+  output logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining,
   output logic accumulator_sticky,
-  output logic signed [DST_PRECISION_BITS :0] signed_mantissa_d
+  output logic signed [DST_PRECISION_BITS :0] signed_mantissa_d,
+  output logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted
 );
   
   // -----------------------------
   // Accumulator shift data path
   // -----------------------------
-
   logic signed [9:0] accumulator_shift_amount;
   logic signed [DST_EXP_WIDTH-1:0] exponent_d;
   logic [DST_PRECISION_BITS-1:0] mantissa_d;
-  logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining;
-  logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted, sum_product_accumulator;
 
   // Zero-extend exponents into signed container - implicit width extension
   assign exponent_d = {1'b0, operand_d_q2.exponent};
@@ -638,6 +636,20 @@ module accumulator_shift
       end
     end
   end
+endmodule
+
+module add_accumulator_sop
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_q,
+  input  logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted,
+  input  logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining,
+  output logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended
+);
+
+  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_accumulator;
 
   assign sum_product_accumulator = sum_product_q + accumulator_shifted;
   assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};

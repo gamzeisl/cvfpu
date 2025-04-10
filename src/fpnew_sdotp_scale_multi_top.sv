@@ -422,9 +422,10 @@ module fpnew_sdotp_scale_multi_top #(
   logic accumulator_is_right_shifted;
 
   logic signed [9:0] accumulator_right_shift_amount;
-  logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended;
+  logic signed [FIXED_SUM_WIDTH-1:0] accumulator_shifted;
   logic signed [DST_PRECISION_BITS :0] signed_mantissa_d;
   logic accumulator_sticky;
+  logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining;
 
   accumulator_shift #(
   ) i_accumulator_shift (
@@ -435,16 +436,30 @@ module fpnew_sdotp_scale_multi_top #(
     .dst_fmt_q2(dst_fmt_q2),
     .accumulator_is_right_shifted(accumulator_is_right_shifted),
     .accumulator_right_shift_amount(accumulator_right_shift_amount),
-    .sum_product_accumulator_extended(sum_product_accumulator_extended),
+    .accumulator_shifted(accumulator_shifted),
     .result_is_accumulator(result_is_accumulator),
     .accumulator_sticky(accumulator_sticky),
-    .signed_mantissa_d(signed_mantissa_d)
+    .signed_mantissa_d(signed_mantissa_d),
+    .accumulator_remaining(accumulator_remaining)
+  );
+
+  // -----------------
+  // Accumulator + SoP
+  // -----------------
+  logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended;
+
+  add_accumulator_sop #(
+  ) i_add_accumulator_sop (
+    .sum_product_q(sum_product_q),
+    .accumulator_shifted(accumulator_shifted),
+    .accumulator_remaining(accumulator_remaining),
+    .sum_product_accumulator_extended(sum_product_accumulator_extended)
   );
 
   // --------------
   // Normalization
   // --------------
-  logic        [LZC_SUM_WIDTH-1:0]  sum_magnitude;
+  logic        [LZC_SUM_WIDTH-1:0]      sum_magnitude;
   logic                                 final_sign;
   logic        [DST_PRECISION_BITS-1:0] final_mantissa;
   logic                                 sticky_after_norm;
