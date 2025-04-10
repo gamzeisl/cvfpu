@@ -47,8 +47,6 @@ package fpnew_sdotp_scale_multi_pkg;
   localparam int unsigned FP4_EXP_BITS  = fpnew_pkg::exp_bits(fpnew_pkg::FP4);
   localparam int unsigned FP4_MAN_BITS  = fpnew_pkg::man_bits(fpnew_pkg::FP4);
   localparam int unsigned FP4_PREC_BITS = FP4_MAN_BITS + 1;
-  localparam int unsigned FP4_PROD_BITS = 2*FP4_PREC_BITS + 1; // 2p+1 for the product
-  localparam int unsigned FP4_SUM_BITS  = $clog2(VectorSize) + 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_BITS + 1; // 2*(2^e-1-bias) + 2p+1 + 1, (2^e-1-bias): max shift amount, +1 for the sign bit
 
   // Precision bits 'p' include the implicit bit
   localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
@@ -59,12 +57,18 @@ package fpnew_sdotp_scale_multi_pkg;
   localparam int unsigned ANCHOR = 34; // Fractional point position
   localparam int unsigned INT_BITS = 32;
   localparam int unsigned VECTOR_BITS = $clog2(VectorSize);
-  localparam int unsigned SOP_FIXED_WIDTH = 1 + VECTOR_BITS + INT_BITS + ANCHOR;
+  localparam int unsigned PROD_SHIFT_WIDTH = 1 + INT_BITS + ANCHOR;
+  localparam int unsigned SOP_FIXED_WIDTH  = VECTOR_BITS + PROD_SHIFT_WIDTH;
   localparam int unsigned FIXED_SUM_WIDTH  = 1 + DST_PRECISION_BITS + 1 + (SOP_FIXED_WIDTH - 1); // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
   localparam int unsigned LZC_SUM_WIDTH    = FIXED_SUM_WIDTH + DST_PRECISION_BITS;
   localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH);
   localparam int signed   MAX_ACC_SHIFT_AMOUNT = FIXED_SUM_WIDTH - DST_PRECISION_BITS - 1; // Maximum allowable shift, -1 for the sign bit
   localparam int unsigned SOP_SHIFT = ANCHOR - 2*SUPER_MAN_BITS; // Constant left shift amount for the SOP to align the fractional point
+
+  // FP4 specific
+  localparam int unsigned FP4_PROD_WIDTH       = 2*FP4_PREC_BITS + 1; // 2p+1 for the product
+  localparam int unsigned FP4_PROD_SHIFT_WIDTH = 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_WIDTH + 1; // 2*(2^e-1-bias) + 2p+1 + 1, (2^e-1-bias): max shift amount, +1 for the sign bit
+  localparam int unsigned FP4_SUM_WIDTH  = VECTOR_BITS + FP4_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1 + 1
 
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
@@ -534,10 +538,12 @@ endmodule
 module adder_tree
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
+  parameter int unsigned InputWidth  = 4,
+  parameter int unsigned OutputWidth = 70
 ) (
   // Input signals
-  input  logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product,
-  output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
+  input  logic signed [VectorSize-1:0][InputWidth-1:0] shifted_product,
+  output logic signed [OutputWidth-1:0] sum_product
 );
   // ------------------
   // Adder data path
@@ -548,27 +554,6 @@ module adder_tree
     for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
     end
-  end
-endmodule
-
-module fp4_adder_tree
-  import fpnew_sdotp_scale_multi_pkg::*;
-#(
-) (
-  // Input signals
-  input  logic signed [VectorSize-1:0][FP4_SUM_BITS-1:0] shifted_product,
-  output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
-);
-  // ------------------
-  // Adder data path
-  // ------------------
-  // Sum the products
-  always_comb begin : sum_products
-    sum_product = '0;
-    for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
-      sum_product += signed'(shifted_product[i]);
-    end
-    sum_product = signed'(sum_product) << (SOP_SHIFT+2*(SUPER_MAN_BITS-FP4_MAN_BITS));
   end
 endmodule
 
@@ -576,15 +561,17 @@ module adder
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
 ) (
-  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp8,
-  input  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp4,
+  input  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8,
+  input  logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4,
   output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
 );
   // ------------------
   // Adder data path
   // ------------------
-  // Sum the products
-  assign sum_product = sum_product_fp8 + sum_product_fp4;
+  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp4_shifted;
+
+  assign sum_product_fp4_shifted = signed'(sum_product_fp4) << (SOP_SHIFT+2*(SUPER_MAN_BITS-FP4_MAN_BITS));
+  assign sum_product = sum_product_fp8 + sum_product_fp4_shifted;
 endmodule
 
 module accumulator_shift

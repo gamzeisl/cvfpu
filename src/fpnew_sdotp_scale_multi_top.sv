@@ -266,15 +266,15 @@ module fpnew_sdotp_scale_multi_top #(
   // ------------------
   // Shift data path
   // ------------------
-  logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product;
-  logic signed [VectorSize-1:0][FP4_SUM_BITS-1:0] fp4_shifted_product;
+  logic signed [VectorSize-1:0][PROD_SHIFT_WIDTH-1:0] shifted_product;
+  logic signed [VectorSize-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
   product_shifter #(
     .SrcType(fp_src_t),
     .IsFullWidth(1),
     .PrecisionBits(PRECISION_BITS),
     .ExpWidth(EXP_WIDTH),
-    .OutputWidth(SOP_FIXED_WIDTH)
+    .OutputWidth(PROD_SHIFT_WIDTH)
   ) i_product_shifter_fp8 (
     .operands_a(operands_a),
     .operands_b(operands_b),
@@ -290,7 +290,7 @@ module fpnew_sdotp_scale_multi_top #(
     .IsFullWidth(0),
     .PrecisionBits(FP4_PREC_BITS),
     .ExpWidth(3),
-    .OutputWidth(FP4_SUM_BITS)
+    .OutputWidth(FP4_PROD_SHIFT_WIDTH)
   ) i_product_shifter_fp4 (
     .operands_a(fp4_operands_a),
     .operands_b(fp4_operands_b),
@@ -304,15 +304,21 @@ module fpnew_sdotp_scale_multi_top #(
   // ------------------
   // Adder data path
   // ------------------
-  logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp8, sum_product_fp4, sum_product;
+  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8;
+  logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4;
+  logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
   adder_tree #(
+    .InputWidth(PROD_SHIFT_WIDTH),
+    .OutputWidth(SOP_FIXED_WIDTH)
   ) i_adder_tree_fp8 (
     .shifted_product(shifted_product),
     .sum_product(sum_product_fp8)
   );
 
-  fp4_adder_tree #(
+  adder_tree #(
+    .InputWidth(FP4_PROD_SHIFT_WIDTH),
+    .OutputWidth(FP4_SUM_WIDTH)
   ) i_adder_tree_fp4 (
     .shifted_product(fp4_shifted_product),
     .sum_product(sum_product_fp4)
