@@ -172,7 +172,7 @@ module fpnew_sdotp_scale_multi_top #(
   fpnew_pkg::fp_info_t [1:0] info_c;
   fpnew_pkg::fp_info_t info_d;
 
-  fp_src_t [VectorSize-1:0] fp4_operands_a, fp4_operands_b;
+  fp_fp4_src_t [VectorSize-1:0] fp4_operands_a, fp4_operands_b;
   fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_a, fp4_info_b;
 
   classifier #(
@@ -239,9 +239,12 @@ module fpnew_sdotp_scale_multi_top #(
   // Product data path
   // ------------------
   logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
-  logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] fp4_product_signed;  // two's complement product TODO: change PREC_BITS
+  logic signed [VectorSize-1:0][2*FP4_PREC_BITS   :0] fp4_product_signed;  // two's complement product
 
   vector_multiplier #(
+    .SrcType(fp_src_t),
+    .VectorSize(VectorSize),
+    .PrecisionBits(PRECISION_BITS)
   ) i_vector_multiplier_fp8 (
     .operands_a(operands_a),
     .operands_b(operands_b),
@@ -251,6 +254,9 @@ module fpnew_sdotp_scale_multi_top #(
   );
 
   vector_multiplier #(
+    .SrcType(fp_fp4_src_t),
+    .VectorSize(VectorSize),
+    .PrecisionBits(FP4_PREC_BITS)
   ) i_vector_multiplier_fp4 (
     .operands_a(fp4_operands_a),
     .operands_b(fp4_operands_b),
@@ -290,7 +296,6 @@ module fpnew_sdotp_scale_multi_top #(
   // ------------------
   // Adder data path
   // ------------------
-  // TODO: Add hierarchy to get optimized adder tree
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp8, sum_product_fp4, sum_product;
 
   adder_tree #(

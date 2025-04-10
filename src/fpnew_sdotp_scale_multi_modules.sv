@@ -132,9 +132,9 @@ module classifier
   output fpnew_pkg::fp_info_t [1:0] info_c,
   output fpnew_pkg::fp_info_t info_d,
   output fp_src_t [VectorSize-1:0] operands_a,
-  output fp_src_t [VectorSize-1:0] fp4_operands_a,
+  output fp_fp4_src_t [VectorSize-1:0] fp4_operands_a,
   output fp_src_t [VectorSize-1:0] operands_b,
-  output fp_src_t [VectorSize-1:0] fp4_operands_b,
+  output fp_fp4_src_t [VectorSize-1:0] fp4_operands_b,
   output logic signed [1:0][SCALE_WIDTH-1:0] operands_c,
   output fp_dst_t operand_d
 );
@@ -149,9 +149,9 @@ module classifier
   fpnew_pkg::fp_info_t [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] info_q;
 
   // FP4
-  logic        [2*VectorSize-1:0]                     fp4_fmt_sign;
-  logic signed [2*VectorSize-1:0][SUPER_EXP_BITS-1:0] fp4_fmt_exponent;
-  logic        [2*VectorSize-1:0][SUPER_MAN_BITS-1:0] fp4_fmt_mantissa;
+  logic        [2*VectorSize-1:0]                   fp4_fmt_sign;
+  logic signed [2*VectorSize-1:0][FP4_EXP_BITS-1:0] fp4_fmt_exponent;
+  logic        [2*VectorSize-1:0][FP4_MAN_BITS-1:0] fp4_fmt_mantissa;
 
   fpnew_pkg::fp_info_t [2*VectorSize-1:0] fp4_info_q;
 
@@ -179,7 +179,7 @@ module classifier
         assign trimmed_ops[op]       = operands_post_inp_pipe[op][FP_WIDTH-1:0];
         assign fmt_sign[fmt][op]     = operands_post_inp_pipe[op][FP_WIDTH-1];
         assign fmt_exponent[fmt][op] = signed'({1'b0, operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS]});
-        assign fmt_mantissa[fmt][op] = {info_q[fmt][op].is_normal, operands_post_inp_pipe[op][MAN_BITS-1:0]} <<
+        assign fmt_mantissa[fmt][op] = operands_post_inp_pipe[op][MAN_BITS-1:0] <<
                                        (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
       end
     end else begin : inactive_src_format
@@ -212,9 +212,8 @@ module classifier
       for (genvar op = 0; op < 2*VectorSize; op++) begin : gen_operands
         assign trimmed_ops[op]      = fp4_operands_post_inp_pipe[op][FP_WIDTH-1:0];
         assign fp4_fmt_sign[op]     = fp4_operands_post_inp_pipe[op][FP_WIDTH-1];
-        assign fp4_fmt_exponent[op] = signed'({1'b0, fp4_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS]});
-        assign fp4_fmt_mantissa[op] = {fp4_info_q[op].is_normal, fp4_operands_post_inp_pipe[op][MAN_BITS-1:0]} <<
-                                       (SUPER_MAN_BITS - MAN_BITS); // move to left of mantissa
+        assign fp4_fmt_exponent[op] = fp4_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS];
+        assign fp4_fmt_mantissa[op] = fp4_operands_post_inp_pipe[op][MAN_BITS-1:0];
       end
     end else begin : inactive_src_format
       assign fp4_info_q[2*VectorSize-1:0]  = '{default: fpnew_pkg::DONT_CARE}; // format disabled
@@ -466,19 +465,22 @@ endmodule
 module vector_multiplier
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
+  parameter type         SrcType       = logic,
+  parameter int unsigned VectorSize    = 8,
+  parameter int unsigned PrecisionBits = 4
 ) (
   // Input signals
-  input  fp_src_t [VectorSize-1:0] operands_a,
-  input  fp_src_t [VectorSize-1:0] operands_b,
+  input  SrcType [VectorSize-1:0] operands_a,
+  input  SrcType [VectorSize-1:0] operands_b,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
-  output logic [VectorSize-1:0][2*PRECISION_BITS :0] product_signed
+  output logic [VectorSize-1:0][2*PrecisionBits :0] product_signed
 );
   // ------------------
   // Product data path
   // ------------------
-  logic [VectorSize-1:0][  PRECISION_BITS-1:0] mantissa_a, mantissa_b;
-  logic [VectorSize-1:0][2*PRECISION_BITS-1:0] product;  // the p*p product is 2p-bit wide
+  logic [VectorSize-1:0][  PrecisionBits-1:0] mantissa_a, mantissa_b;
+  logic [VectorSize-1:0][2*PrecisionBits-1:0] product;  // the p*p product is 2p-bit wide
 
   // Add implicit bits to mantissae
   for (genvar i = 0; i < VectorSize; i++) begin : gen_mantissa
@@ -526,9 +528,9 @@ module fp4_product_shifter
 #(
 ) (
   // Input signals
-  input  fp_src_t [VectorSize-1:0] operands_a,
-  input  fp_src_t [VectorSize-1:0] operands_b,
-  input  logic [VectorSize-1:0][2*PRECISION_BITS :0] product_signed,
+  input  fp_fp4_src_t [VectorSize-1:0] operands_a,
+  input  fp_fp4_src_t [VectorSize-1:0] operands_b,
+  input  logic [VectorSize-1:0][2*FP4_PREC_BITS :0] product_signed,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
   input  fpnew_pkg::fp_format_e src_fmt_q,
@@ -586,7 +588,7 @@ module fp4_adder_tree
     for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
     end
-    sum_product = signed'(sum_product) << SOP_SHIFT;
+    sum_product = signed'(sum_product) << (SOP_SHIFT+2*(SUPER_MAN_BITS-FP4_MAN_BITS));
   end
 endmodule
 
