@@ -243,7 +243,6 @@ module fpnew_sdotp_scale_multi_top #(
 
   vector_multiplier #(
     .SrcType(fp_src_t),
-    .VectorSize(VectorSize),
     .PrecisionBits(PRECISION_BITS)
   ) i_vector_multiplier_fp8 (
     .operands_a(operands_a),
@@ -255,7 +254,6 @@ module fpnew_sdotp_scale_multi_top #(
 
   vector_multiplier #(
     .SrcType(fp_fp4_src_t),
-    .VectorSize(VectorSize),
     .PrecisionBits(FP4_PREC_BITS)
   ) i_vector_multiplier_fp4 (
     .operands_a(fp4_operands_a),
@@ -272,6 +270,11 @@ module fpnew_sdotp_scale_multi_top #(
   logic signed [VectorSize-1:0][FP4_SUM_BITS-1:0] fp4_shifted_product;
 
   product_shifter #(
+    .SrcType(fp_src_t),
+    .IsFullWidth(1),
+    .PrecisionBits(PRECISION_BITS),
+    .ExpWidth(EXP_WIDTH),
+    .OutputWidth(SOP_FIXED_WIDTH)
   ) i_product_shifter_fp8 (
     .operands_a(operands_a),
     .operands_b(operands_b),
@@ -282,7 +285,12 @@ module fpnew_sdotp_scale_multi_top #(
     .shifted_product(shifted_product)
   );
 
-  fp4_product_shifter #(
+  product_shifter #(
+    .SrcType(fp_fp4_src_t),
+    .IsFullWidth(0),
+    .PrecisionBits(FP4_PREC_BITS),
+    .ExpWidth(3),
+    .OutputWidth(FP4_SUM_BITS)
   ) i_product_shifter_fp4 (
     .operands_a(fp4_operands_a),
     .operands_b(fp4_operands_b),

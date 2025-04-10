@@ -466,7 +466,6 @@ module vector_multiplier
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
   parameter type         SrcType       = logic,
-  parameter int unsigned VectorSize    = 8,
   parameter int unsigned PrecisionBits = 4
 ) (
   // Input signals
@@ -494,60 +493,41 @@ endmodule
 module product_shifter
   import fpnew_sdotp_scale_multi_pkg::*;
 #(
+  parameter type         SrcType       = logic,
+  parameter bit          IsFullWidth   = 1,
+  parameter int unsigned PrecisionBits = 4,
+  parameter int unsigned ExpWidth      = 8,
+  parameter int unsigned OutputWidth   = 70
 ) (
   // Input signals
-  input  fp_src_t [VectorSize-1:0] operands_a,
-  input  fp_src_t [VectorSize-1:0] operands_b,
-  input  logic [VectorSize-1:0][2*PRECISION_BITS :0] product_signed,
+  input  SrcType [VectorSize-1:0] operands_a,
+  input  SrcType [VectorSize-1:0] operands_b,
+  input  logic [VectorSize-1:0][2*PrecisionBits :0] product_signed,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
   input  fpnew_pkg::fp_format_e src_fmt_q,
-  output logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product
+  output logic signed [VectorSize-1:0][OutputWidth-1:0] shifted_product
 );
   // ------------------
   // Shift data path
   // ------------------
-  logic signed [VectorSize-1:0][EXP_WIDTH-1:0] exponent_product;
-  logic [VectorSize-1:0][5:0] shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
+  logic signed [VectorSize-1:0][ExpWidth-1:0] exponent_product;
 
   // Calculate the non-biased exponent of the product
   for (genvar i = 0; i < VectorSize; i++) begin : gen_exponent_adjustment
     assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
                                 + operands_b[i].exponent + info_b[i].is_subnormal 
                                 - 2*signed'(fpnew_pkg::bias_constant(src_fmt_q));
-    // Right shift the significand by anchor point - exponent
-    // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
-    // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
-    assign shift_amount[i] = signed'(SOP_SHIFT) + signed'(exponent_product[i]);
-    assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
-  end
-endmodule
-
-module fp4_product_shifter
-  import fpnew_sdotp_scale_multi_pkg::*;
-#(
-) (
-  // Input signals
-  input  fp_fp4_src_t [VectorSize-1:0] operands_a,
-  input  fp_fp4_src_t [VectorSize-1:0] operands_b,
-  input  logic [VectorSize-1:0][2*FP4_PREC_BITS :0] product_signed,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
-  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
-  input  fpnew_pkg::fp_format_e src_fmt_q,
-  output logic signed [VectorSize-1:0][FP4_SUM_BITS-1:0] shifted_product
-);
-  // ------------------
-  // Shift data path
-  // ------------------
-  logic signed [VectorSize-1:0][2:0] exponent_product;
-
-  // Calculate the non-biased exponent of the product
-  for (genvar i = 0; i < VectorSize; i++) begin : gen_exponent_adjustment
-    assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
-                                + operands_b[i].exponent + info_b[i].is_subnormal 
-                                - 2*signed'(fpnew_pkg::bias_constant(src_fmt_q));
-    // exponent_product is negative only for zero inputs
-    assign shifted_product[i] = signed'(product_signed[i]) << exponent_product[i];
+    if (IsFullWidth) begin
+      // Right shift the significand by anchor point - exponent
+      // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
+      // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
+      // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
+      assign shifted_product[i] = signed'(product_signed[i]) << (signed'(SOP_SHIFT) + signed'(exponent_product[i]));
+    end else begin
+      // exponent_product is negative only for zero inputs
+      assign shifted_product[i] = signed'(product_signed[i]) << exponent_product[i];
+    end
   end
 endmodule
 
