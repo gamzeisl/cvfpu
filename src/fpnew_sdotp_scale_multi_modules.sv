@@ -43,6 +43,13 @@ package fpnew_sdotp_scale_multi_pkg;
   localparam int unsigned SUPER_DST_EXP_BITS = SUPER_DST_FORMAT.exp_bits;
   localparam int unsigned SUPER_DST_MAN_BITS = SUPER_DST_FORMAT.man_bits;
 
+  // FP4 specific
+  localparam int unsigned FP4_EXP_BITS  = fpnew_pkg::exp_bits(fpnew_pkg::FP4);
+  localparam int unsigned FP4_MAN_BITS  = fpnew_pkg::man_bits(fpnew_pkg::FP4);
+  localparam int unsigned FP4_PREC_BITS = FP4_MAN_BITS + 1;
+  localparam int unsigned FP4_PROD_BITS = 2*FP4_PREC_BITS + 1; // 2p+1 for the product
+  localparam int unsigned FP4_SUM_BITS  = $clog2(VectorSize) + 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_BITS + 1; // 2*(2^e-1-bias) + 2p+1 + 1, (2^e-1-bias): max shift amount, +1 for the sign bit
+
   // Precision bits 'p' include the implicit bit
   localparam int unsigned PRECISION_BITS = SUPER_MAN_BITS + 1;
   // Destination precision bits 'p_dst' include the implicit bit
@@ -56,7 +63,7 @@ package fpnew_sdotp_scale_multi_pkg;
   localparam int unsigned FIXED_SUM_WIDTH  = 1 + DST_PRECISION_BITS + 1 + (SOP_FIXED_WIDTH - 1); // |s|-Acc:24b-|R|-unsigned SoP:64+log2k-|
   localparam int unsigned LZC_SUM_WIDTH    = FIXED_SUM_WIDTH + DST_PRECISION_BITS;
   localparam int unsigned LZC_RESULT_WIDTH = $clog2(LZC_SUM_WIDTH);
-  localparam int signed MAX_ACC_SHIFT_AMOUNT = FIXED_SUM_WIDTH - DST_PRECISION_BITS - 1; // Maximum allowable shift, -1 for the sign bit
+  localparam int signed   MAX_ACC_SHIFT_AMOUNT = FIXED_SUM_WIDTH - DST_PRECISION_BITS - 1; // Maximum allowable shift, -1 for the sign bit
   localparam int unsigned SOP_SHIFT = ANCHOR - 2*SUPER_MAN_BITS; // Constant left shift amount for the SOP to align the fractional point
 
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
@@ -92,6 +99,11 @@ package fpnew_sdotp_scale_multi_pkg;
     logic [SUPER_EXP_BITS-1:0] exponent;
     logic [SUPER_MAN_BITS-1:0] mantissa;
   } fp_src_t;
+  typedef struct packed {
+    logic                    sign;
+    logic [FP4_EXP_BITS-1:0] exponent;
+    logic [FP4_MAN_BITS-1:0] mantissa;
+  } fp_fp4_src_t;
   typedef struct packed {
     logic                          sign;
     logic [SUPER_DST_EXP_BITS-1:0] exponent;
@@ -488,13 +500,13 @@ module product_shifter
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
   input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
   input  fpnew_pkg::fp_format_e src_fmt_q,
-  output logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product,
-  output logic [VectorSize-1:0][5:0] shift_amount
+  output logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product
 );
   // ------------------
   // Shift data path
   // ------------------
   logic signed [VectorSize-1:0][EXP_WIDTH-1:0] exponent_product;
+  logic [VectorSize-1:0][5:0] shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
 
   // Calculate the non-biased exponent of the product
   for (genvar i = 0; i < VectorSize; i++) begin : gen_exponent_adjustment
@@ -506,6 +518,34 @@ module product_shifter
     // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
     assign shift_amount[i] = signed'(SOP_SHIFT) + signed'(exponent_product[i]);
     assign shifted_product[i] = signed'(product_signed[i]) << shift_amount[i];
+  end
+endmodule
+
+module fp4_product_shifter
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  fp_src_t [VectorSize-1:0] operands_a,
+  input  fp_src_t [VectorSize-1:0] operands_b,
+  input  logic [VectorSize-1:0][2*PRECISION_BITS :0] product_signed,
+  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_a,
+  input  fpnew_pkg::fp_info_t [VectorSize-1:0] info_b,
+  input  fpnew_pkg::fp_format_e src_fmt_q,
+  output logic signed [VectorSize-1:0][FP4_SUM_BITS-1:0] shifted_product
+);
+  // ------------------
+  // Shift data path
+  // ------------------
+  logic signed [VectorSize-1:0][2:0] exponent_product;
+
+  // Calculate the non-biased exponent of the product
+  for (genvar i = 0; i < VectorSize; i++) begin : gen_exponent_adjustment
+    assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
+                                + operands_b[i].exponent + info_b[i].is_subnormal 
+                                - 2*signed'(fpnew_pkg::bias_constant(src_fmt_q));
+    // exponent_product is negative only for zero inputs
+    assign shifted_product[i] = signed'(product_signed[i]) << exponent_product[i];
   end
 endmodule
 
@@ -526,6 +566,27 @@ module adder_tree
     for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
       sum_product += signed'(shifted_product[i]);
     end
+  end
+endmodule
+
+module fp4_adder_tree
+  import fpnew_sdotp_scale_multi_pkg::*;
+#(
+) (
+  // Input signals
+  input  logic signed [VectorSize-1:0][FP4_SUM_BITS-1:0] shifted_product,
+  output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
+);
+  // ------------------
+  // Adder data path
+  // ------------------
+  // Sum the products
+  always_comb begin : sum_products
+    sum_product = '0;
+    for (int i = 0; i < VectorSize; i++) begin : gen_sum_products
+      sum_product += signed'(shifted_product[i]);
+    end
+    sum_product = signed'(sum_product) << SOP_SHIFT;
   end
 endmodule
 

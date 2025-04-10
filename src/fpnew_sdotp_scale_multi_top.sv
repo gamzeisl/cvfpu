@@ -67,20 +67,6 @@ module fpnew_sdotp_scale_multi_top #(
   output logic                        busy_o
 );
 
-  // ----------------
-  // Type definition
-  // ----------------
-  typedef struct packed {
-    logic                      sign;
-    logic [SUPER_EXP_BITS-1:0] exponent;
-    logic [SUPER_MAN_BITS-1:0] mantissa;
-  } fp_src_t;
-  typedef struct packed {
-    logic                          sign;
-    logic [SUPER_DST_EXP_BITS-1:0] exponent;
-    logic [SUPER_DST_MAN_BITS-1:0] mantissa;
-  } fp_dst_t;
-
   // ---------------
   // Input pipeline
   // ---------------
@@ -277,10 +263,7 @@ module fpnew_sdotp_scale_multi_top #(
   // Shift data path
   // ------------------
   logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] shifted_product;
-  logic [VectorSize-1:0][  5:0] shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
-
-  logic signed [VectorSize-1:0][SOP_FIXED_WIDTH-1:0] fp4_shifted_product;
-  logic [VectorSize-1:0][  5:0] fp4_shift_amount; // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
+  logic signed [VectorSize-1:0][FP4_SUM_BITS-1:0] fp4_shifted_product;
 
   product_shifter #(
   ) i_product_shifter_fp8 (
@@ -290,11 +273,10 @@ module fpnew_sdotp_scale_multi_top #(
     .info_b(info_b),
     .product_signed(product_signed),
     .src_fmt_q(src_fmt_q),
-    .shift_amount(shift_amount),
     .shifted_product(shifted_product)
   );
 
-  product_shifter #(
+  fp4_product_shifter #(
   ) i_product_shifter_fp4 (
     .operands_a(fp4_operands_a),
     .operands_b(fp4_operands_b),
@@ -302,7 +284,6 @@ module fpnew_sdotp_scale_multi_top #(
     .info_b(fp4_info_b),
     .product_signed(fp4_product_signed),
     .src_fmt_q(src_fmt_q),
-    .shift_amount(fp4_shift_amount),
     .shifted_product(fp4_shifted_product)
   );
 
@@ -318,7 +299,7 @@ module fpnew_sdotp_scale_multi_top #(
     .sum_product(sum_product_fp8)
   );
 
-  adder_tree #(
+  fp4_adder_tree #(
   ) i_adder_tree_fp4 (
     .shifted_product(fp4_shifted_product),
     .sum_product(sum_product_fp4)
