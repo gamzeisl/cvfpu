@@ -9,6 +9,9 @@ module tb_fpnew_sdotp_scale_multi;
                                     (`SRC_FMT == "FP6ALT") ? fpnew_pkg::FP6ALT : 
                                     (`SRC_FMT == "FP4") ? fpnew_pkg::FP4 : 
                                     fpnew_pkg::FP8;
+  fpnew_pkg::fp_format_e DST_FMT = (`DST_FMT == "FP32") ? fpnew_pkg::FP32 : 
+                                    (`DST_FMT == "BF16") ? fpnew_pkg::FP16ALT : 
+                                    fpnew_pkg::FP32;
   parameter int unsigned VectorSize = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 8 `endif;
   parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
   parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
@@ -17,7 +20,7 @@ module tb_fpnew_sdotp_scale_multi;
   // Parameters for the module
   parameter fpnew_pkg::pipe_config_t PipeConfig = fpnew_pkg::DISTRIBUTED;
   parameter fpnew_pkg::fmt_logic_t SrcDotpFpFmtConfig = 9'b000101111; // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
-  parameter fpnew_pkg::fmt_logic_t DstDotpFpFmtConfig = 9'b100000000; // Supported destination formats (FP32)
+  parameter fpnew_pkg::fmt_logic_t DstDotpFpFmtConfig = 9'b100010000; // Supported destination formats (FP32, BF16)
 
   parameter type TagType = logic;
   parameter type AuxType = logic;
@@ -75,11 +78,11 @@ module tb_fpnew_sdotp_scale_multi;
   int count_applied, count_checked, fail_count;
 
   // Declare a queue to store expected results
-  logic [31:0] expected_results[$];
+  logic [DST_WIDTH-1:0] expected_results[$];
   int vector_indices[$];  // Optional: track input vector indices for easier debugging
 
   // Expected results
-  logic [31:0] expected_result;
+  logic [DST_WIDTH-1:0] expected_result;
   logic [93:0] sum_prod, shifted_acc, sum_prod_acc, tb_sum_shifted;
   logic  [9:0] shift_acc;
   logic  [8:0] tb_final_exponent;
@@ -151,7 +154,7 @@ module tb_fpnew_sdotp_scale_multi;
     // Set constant input signals
     is_boxed_i = '1;
     src_fmt_i = SRC_FMT;
-    dst_fmt_i = fpnew_pkg::FP32;
+    dst_fmt_i = DST_FMT;
     rnd_mode_i = fpnew_pkg::RNE;
     op_i = fpnew_pkg::SDOTP;
     op_mod_i = 0;

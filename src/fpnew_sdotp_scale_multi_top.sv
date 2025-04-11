@@ -19,7 +19,7 @@ import fpnew_sdotp_scale_multi_pkg::*;
 module fpnew_sdotp_scale_multi_top #(
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
   parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111, // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
-  parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100000000, // Supported destination formats (FP32)
+  parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100010000, // Supported destination formats (FP32, BF16)
   parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
