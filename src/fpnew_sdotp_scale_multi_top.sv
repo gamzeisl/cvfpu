@@ -513,6 +513,7 @@ module fpnew_sdotp_scale_multi_top #(
   // Result selection
   // -----------------
   logic [DST_WIDTH-1:0] regular_result;
+  logic [DST_WIDTH-1:0] accumulator_result;
   fpnew_pkg::status_t   regular_status;
 
   // Assemble regular result
@@ -523,12 +524,15 @@ module fpnew_sdotp_scale_multi_top #(
   assign regular_status.UF = uf_after_round & regular_status.NX; // only inexact results raise UF
   assign regular_status.NX = (| round_sticky_bits) | of_before_round | of_after_round;
 
+  assign accumulator_result = (dst_fmt_q2 == fpnew_pkg::FP16ALT) ? {16'hFFFF, operand_d_q2[31:16]} :
+                              operand_d_q2;
+
   // Final results for output pipeline
   logic [DST_WIDTH-1:0] result_d;
   fpnew_pkg::status_t   status_d;
 
   // Select output depending on special case detection
-  assign result_d = result_is_special_q ? special_result_q : (result_is_accumulator ? operand_d_q2 : regular_result);
+  assign result_d = result_is_special_q ? special_result_q : (result_is_accumulator ? accumulator_result : regular_result);
   assign status_d = result_is_special_q ? special_status_q : (result_is_accumulator ? fpnew_pkg::status_t'(0) : regular_status);
 
   // ----------------
