@@ -16,6 +16,9 @@ module tb_fpnew_sdotp_scale_multi;
   parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
   parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
   parameter int unsigned NUM_VECTORS = `NUM_VECTORS;
+  parameter int unsigned DstActualWidth = (`DST_FMT == "FP32") ? 32 : 
+                                           (`DST_FMT == "BF16") ? 16 : 
+                                           32;
 
   // Parameters for the module
   parameter fpnew_pkg::pipe_config_t PipeConfig = fpnew_pkg::DISTRIBUTED;
@@ -233,7 +236,7 @@ module tb_fpnew_sdotp_scale_multi;
 
       if (out_valid_o && out_ready_i) begin
         if (result_o !== expected_results[0]) begin
-          if (result_o[DST_WIDTH-2:0] === expected_results[0][DST_WIDTH-2:0]) begin
+          if (result_o[DstActualWidth-2:0] === expected_results[0][DstActualWidth-2:0]) begin
             $display("WARNING: Sign of zero doesn't match! Vector: [%d], Expected: %h, Got: %h at time %t", 
                       vector_indices[0], expected_results[0], result_o, $realtime);
           end else begin
