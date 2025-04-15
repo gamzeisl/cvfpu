@@ -120,23 +120,10 @@ module fpnew_sdotp_scale_multi_wrapper #(
       end
 
       local_is_boxed[fmt][2*VectorSize] = is_boxed_i[fmt][2];
-
-      // // take is_boxed info from external or set to 1 if boxed for dotp operation
-      // local_is_boxed[fmt][0] = is_boxed_i[fmt][0];
-      // local_is_boxed[fmt][1] = is_boxed_i[fmt][1];
-      // local_is_boxed[fmt][2] = 
-      // local_is_boxed[fmt][3] = is_boxed_i[fmt][1];
-      // if(FP_WIDTH <= SRC_WIDTH) begin
-      //   local_is_boxed[fmt][0] = '1;
-      //   local_is_boxed[fmt][1] = '1;
-      //   local_is_boxed[fmt][2] = '1;
-      //   local_is_boxed[fmt][3] = '1;
-      // end
-      // local_is_boxed[fmt][4] = is_boxed_i[dst_fmt_i][2];
     end
   end
 
-  fpnew_sdotp_scale_multi #(
+  fpnew_sdotp_scale_multi_top #(
     .SrcDotpFpFmtConfig ( FpSrcFmtConfig ), // FP8, FP8ALT 
     .DstDotpFpFmtConfig ( FpDstFmtConfig ), // FP32
     .NumPipeRegs        ( NumPipeRegs    ),
@@ -146,11 +133,11 @@ module fpnew_sdotp_scale_multi_wrapper #(
   ) i_fpnew_sdotp_scale_multi (
     .clk_i,
     .rst_ni,
-    .operands_a_i     ( local_src_fmt_operand_a[src_fmt_i] ),
-    .operands_b_i     ( local_src_fmt_operand_b[src_fmt_i] ),
-    .operands_c_i     ( local_src_fmt_operand_c[dst_fmt_i] ),
-    .operand_d_i     ( local_src_fmt_operand_d[dst_fmt_i] ),
-    .is_boxed_i      ( local_is_boxed                     ),
+    .operands_a_i ( local_src_fmt_operand_a[src_fmt_i] ),
+    .operands_b_i ( local_src_fmt_operand_b[src_fmt_i] ),
+    .operands_c_i ( local_src_fmt_operand_c[dst_fmt_i] ),
+    .operand_d_i  ( local_src_fmt_operand_d[dst_fmt_i] ),
+    .is_boxed_i   ( local_is_boxed                     ),
     .rnd_mode_i,
     .op_i,
     .op_mod_i,
@@ -162,7 +149,7 @@ module fpnew_sdotp_scale_multi_wrapper #(
     .in_valid_i,
     .in_ready_o ,
     .flush_i,
-    .result_o        ( local_result[DST_WIDTH-1:0] ),
+    .result_o     ( local_result[DST_WIDTH-1:0] ),
     .status_o,
     .extension_bit_o,
     .tag_o,
@@ -176,6 +163,6 @@ module fpnew_sdotp_scale_multi_wrapper #(
   if(OPERAND_WIDTH > DST_WIDTH) begin
    assign local_result[OPERAND_WIDTH-1:DST_WIDTH]  = '1;
   end
-  assign result_o                              = local_result;
+  assign result_o = local_result;
 
 endmodule
