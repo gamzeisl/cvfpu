@@ -52,6 +52,7 @@ sources:
   - src/lfsr_sr.sv
   - src/fpnew_top.sv
 
+  - src/mxdotp/fpnew_mxdotp_multi_pkg.sv
   - src/mxdotp/fpnew_mxdotp_multi_modules.sv
   - src/fpnew_mxdotp_multi.sv
   - src/fpnew_mxdotp_multi_wrapper.sv

@@ -15,8 +15,6 @@
 // Author: Luca Bertaccini <lbertaccini@iis.ee.ethz.ch>
 // Author: Stefan Mach <smach@iis.ee.ethz.ch>
 
-`include "common_cells/registers.svh"
-
 module fpnew_mxdotp_multi_wrapper #(
   parameter int unsigned             LaneWidth   = 64,
   parameter fpnew_pkg::fmt_logic_t   FpFmtConfig = '1,

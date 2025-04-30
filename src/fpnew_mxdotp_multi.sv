@@ -14,6 +14,7 @@
 // Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
 
 `include "common_cells/registers.svh"
+
 import fpnew_mxdotp_multi_pkg::*;
 
 module fpnew_mxdotp_multi #(
