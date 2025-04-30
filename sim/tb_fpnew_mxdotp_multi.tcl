@@ -17,7 +17,7 @@ if {$DEBUG == "ON"} {
 
 quit -sim
 
-vsim -voptargs=$VOPT_ARG $DB_SW -pedanticerrors -lib $LIB  tb_fpnew_sdotp_scale_multi
+vsim -voptargs=$VOPT_ARG $DB_SW -pedanticerrors -lib $LIB  tb_fpnew_mxdotp_multi
 
 if {$DEBUG == "ON"} {
     add log -r /*

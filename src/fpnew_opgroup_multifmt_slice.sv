@@ -466,12 +466,12 @@ or on 16b inputs producing 32b outputs");
           .busy_o          ( lane_busy[lane]     )
         );
       end else if (OpGroup == fpnew_pkg::MXDOTP) begin : lane_instance
-        fpnew_sdotp_scale_multi_wrapper #(
+        fpnew_mxdotp_multi_wrapper #(
           .NumPipeRegs(NumPipeRegs),
           .PipeConfig(PipeConfig),
           .TagType(TagType),
           .AuxType(logic [AUX_BITS-1:0])
-          ) i_fpnew_sdotp_scale_multi_wrapper (
+          ) i_fpnew_mxdotp_multi_wrapper (
           .clk_i,
           .rst_ni,
           .operands_i      ( local_operands[2:0]  ),

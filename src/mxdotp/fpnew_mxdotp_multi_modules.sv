@@ -15,7 +15,7 @@
 
 `include "common_cells/registers.svh"
 
-package fpnew_sdotp_scale_multi_pkg;
+package fpnew_mxdotp_multi_pkg;
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
   localparam fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111; // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
   localparam fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100010000; // Supported destination formats (FP32)
@@ -116,7 +116,7 @@ package fpnew_sdotp_scale_multi_pkg;
 endpackage
 
 module classifier 
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -308,7 +308,7 @@ module classifier
 endmodule
 
 module special_cases 
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -453,7 +453,7 @@ module special_cases
 endmodule
 
 module scale_adder
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -467,7 +467,7 @@ module scale_adder
 endmodule
 
 module vector_multiplier
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter type         SrcType       = logic,
   parameter int unsigned PrecisionBits = 4
@@ -495,7 +495,7 @@ module vector_multiplier
 endmodule
 
 module product_shifter
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter type         SrcType       = logic,
   parameter bit          IsFullWidth   = 1,
@@ -536,7 +536,7 @@ module product_shifter
 endmodule
 
 module adder_tree
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter int unsigned InputWidth  = 4,
   parameter int unsigned OutputWidth = 70
@@ -558,7 +558,7 @@ module adder_tree
 endmodule
 
 module adder
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   input  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8,
@@ -575,7 +575,7 @@ module adder
 endmodule
 
 module accumulator_shift
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -639,7 +639,7 @@ module accumulator_shift
 endmodule
 
 module add_accumulator_sop
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -656,7 +656,7 @@ module add_accumulator_sop
 endmodule
 
 module twos_compl
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -685,7 +685,7 @@ module twos_compl
 endmodule
 
 module norm_shift
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -703,7 +703,7 @@ module norm_shift
 endmodule
 
 module normalizer
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals
@@ -794,7 +794,7 @@ module normalizer
 endmodule
 
 module rounder
-  import fpnew_sdotp_scale_multi_pkg::*;
+  import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
   // Input signals

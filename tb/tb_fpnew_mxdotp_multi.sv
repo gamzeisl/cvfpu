@@ -1,6 +1,6 @@
 `timescale 1ns/1ps
 
-module tb_fpnew_sdotp_scale_multi;
+module tb_fpnew_mxdotp_multi;
   // Simulation inputs
   string stim_file = `STIM_FILE;
   fpnew_pkg::fp_format_e SRC_FMT = (`SRC_FMT == "FP8") ? fpnew_pkg::FP8 : 
@@ -91,7 +91,7 @@ module tb_fpnew_sdotp_scale_multi;
   logic  [8:0] tb_final_exponent;
 
   // Instantiate the DUT (Device Under Test)
-  fpnew_sdotp_scale_multi_top #(
+  fpnew_mxdotp_multi #(
     .SrcDotpFpFmtConfig(SrcDotpFpFmtConfig),
     .DstDotpFpFmtConfig(DstDotpFpFmtConfig),
     .NumPipeRegs(NumPipeRegs),

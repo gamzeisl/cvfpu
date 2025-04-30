@@ -14,9 +14,9 @@
 // Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
 
 `include "common_cells/registers.svh"
-import fpnew_sdotp_scale_multi_pkg::*;
+import fpnew_mxdotp_multi_pkg::*;
 
-module fpnew_sdotp_scale_multi_top #(
+module fpnew_mxdotp_multi #(
   // One-hot config string: | FP32 | FP64 | FP16 | FP8 | FP16ALT | FP8ALT | FP6 | FP6ALT | FP4
   parameter fpnew_pkg::fmt_logic_t   SrcDotpFpFmtConfig = 9'b000101111, // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
   parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100010000, // Supported destination formats (FP32, BF16)

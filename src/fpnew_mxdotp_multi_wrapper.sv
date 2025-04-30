@@ -17,7 +17,7 @@
 
 `include "common_cells/registers.svh"
 
-module fpnew_sdotp_scale_multi_wrapper #(
+module fpnew_mxdotp_multi_wrapper #(
   parameter int unsigned             LaneWidth   = 64,
   parameter fpnew_pkg::fmt_logic_t   FpFmtConfig = '1,
   parameter int unsigned             VectorSize  = 8,
@@ -121,14 +121,14 @@ module fpnew_sdotp_scale_multi_wrapper #(
     end
   end
 
-  fpnew_sdotp_scale_multi_top #(
+  fpnew_mxdotp_multi #(
     .SrcDotpFpFmtConfig ( FpSrcFmtConfig ), // FP8, FP8ALT 
     .DstDotpFpFmtConfig ( FpDstFmtConfig ), // FP32
     .NumPipeRegs        ( NumPipeRegs    ),
     .PipeConfig         ( PipeConfig     ),
     .TagType            ( TagType        ),
     .AuxType            ( AuxType        )
-  ) i_fpnew_sdotp_scale_multi (
+  ) i_fpnew_mxdotp_multi (
     .clk_i,
     .rst_ni,
     .operands_a_i ( local_src_fmt_operand_a[src_fmt_i] ),

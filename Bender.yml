@@ -52,12 +52,11 @@ sources:
   - src/lfsr_sr.sv
   - src/fpnew_top.sv
 
-  - src/fpnew_sdotp_scale_multi_modules.sv
-  - src/fpnew_sdotp_scale_multi.sv
-  - src/fpnew_sdotp_scale_multi_top.sv
-  - src/fpnew_sdotp_scale_multi_wrapper.sv
+  - src/mxdotp/fpnew_mxdotp_multi_modules.sv
+  - src/fpnew_mxdotp_multi.sv
+  - src/fpnew_mxdotp_multi_wrapper.sv
 
   - target: tb
     files:
-      - tb/tb_fpnew_sdotp_scale_multi.sv
+      - tb/tb_fpnew_mxdotp_multi.sv
       - tb/tb_fpnew.sv

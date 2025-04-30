@@ -17,7 +17,7 @@ SIM_PATH   ?= sim/build
 
 BENDER_TARGETS = -t tb
 
-target ?= tb_fpnew_sdotp_scale_multi
+target ?= tb_fpnew_mxdotp_multi
 
 src_fmt ?= FP8
 dst_fmt ?= FP32
