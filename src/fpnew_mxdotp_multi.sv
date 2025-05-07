@@ -251,16 +251,20 @@ module fpnew_mxdotp_multi #(
     .product_signed(product_signed)
   );
 
-  vector_multiplier #(
-    .SrcType(fp_fp4_src_t),
-    .PrecisionBits(FP4_PREC_BITS)
-  ) i_vector_multiplier_fp4 (
-    .operands_a(fp4_operands_a),
-    .operands_b(fp4_operands_b),
-    .info_a(fp4_info_a),
-    .info_b(fp4_info_b),
-    .product_signed(fp4_product_signed)
-  );
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
+    vector_multiplier #(
+      .SrcType(fp_fp4_src_t),
+      .PrecisionBits(FP4_PREC_BITS)
+    ) i_vector_multiplier_fp4 (
+      .operands_a(fp4_operands_a),
+      .operands_b(fp4_operands_b),
+      .info_a(fp4_info_a),
+      .info_b(fp4_info_b),
+      .product_signed(fp4_product_signed)
+    );
+  end else begin
+    assign fp4_product_signed = '0;
+  end
 
   // ------------------
   // Shift data path
@@ -284,21 +288,25 @@ module fpnew_mxdotp_multi #(
     .shifted_product(shifted_product)
   );
 
-  product_shifter #(
-    .SrcType(fp_fp4_src_t),
-    .IsFullWidth(0),
-    .PrecisionBits(FP4_PREC_BITS),
-    .ExpWidth(3),
-    .OutputWidth(FP4_PROD_SHIFT_WIDTH)
-  ) i_product_shifter_fp4 (
-    .operands_a(fp4_operands_a),
-    .operands_b(fp4_operands_b),
-    .info_a(fp4_info_a),
-    .info_b(fp4_info_b),
-    .product_signed(fp4_product_signed),
-    .src_fmt_q(src_fmt_q),
-    .shifted_product(fp4_shifted_product)
-  );
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
+    product_shifter #(
+      .SrcType(fp_fp4_src_t),
+      .IsFullWidth(0),
+      .PrecisionBits(FP4_PREC_BITS),
+      .ExpWidth(3),
+      .OutputWidth(FP4_PROD_SHIFT_WIDTH)
+    ) i_product_shifter_fp4 (
+      .operands_a(fp4_operands_a),
+      .operands_b(fp4_operands_b),
+      .info_a(fp4_info_a),
+      .info_b(fp4_info_b),
+      .product_signed(fp4_product_signed),
+      .src_fmt_q(src_fmt_q),
+      .shifted_product(fp4_shifted_product)
+    );
+  end else begin
+    assign fp4_shifted_product = '0;
+  end
 
   // ------------------
   // Adder data path
@@ -315,20 +323,28 @@ module fpnew_mxdotp_multi #(
     .sum_product(sum_product_fp8)
   );
 
-  adder_tree #(
-    .InputWidth(FP4_PROD_SHIFT_WIDTH),
-    .OutputWidth(FP4_SUM_WIDTH)
-  ) i_adder_tree_fp4 (
-    .shifted_product(fp4_shifted_product),
-    .sum_product(sum_product_fp4)
-  );
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
+    adder_tree #(
+      .InputWidth(FP4_PROD_SHIFT_WIDTH),
+      .OutputWidth(FP4_SUM_WIDTH)
+    ) i_adder_tree_fp4 (
+      .shifted_product(fp4_shifted_product),
+      .sum_product(sum_product_fp4)
+    );
+  end else begin
+    assign sum_product_fp4 = '0;
+  end
 
-  adder #(
-  ) i_adder_fp8_fp4 (
-    .sum_product_fp8(sum_product_fp8),
-    .sum_product_fp4(sum_product_fp4),
-    .sum_product(sum_product)
-  );
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_fp8_adder
+    adder #(
+    ) i_adder_fp8_fp4 (
+      .sum_product_fp8(sum_product_fp8),
+      .sum_product_fp4(sum_product_fp4),
+      .sum_product(sum_product)
+    );
+  end else begin
+    assign sum_product = sum_product_fp8;
+  end
 
   // ---------------
   // Internal pipeline
