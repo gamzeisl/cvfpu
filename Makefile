@@ -18,6 +18,8 @@ SIM_PATH   ?= sim/build
 BENDER_TARGETS = -t tb
 
 target ?= tb_fpnew_mxdotp_multi
+ALL_FORMATS := FP8 FP8ALT FP6 FP6ALT FP4
+enabled_formats ?= FP8 FP8ALT FP6 FP6ALT FP4
 
 src_fmt ?= FP8
 dst_fmt ?= FP32
@@ -27,6 +29,8 @@ prob_stall ?= 10 # 10% stall probability
 num_vectors ?= 100
 stim_file ?= test_data_${src_fmt}_${dst_fmt}_${num_vectors}.csv
 
+vlog_defs := $(foreach fmt,$(ALL_FORMATS), \
+  -DEN_$(fmt)=$(if $(filter $(fmt),$(enabled_formats)),1,0) )
 vlog_defs += -DSTIM_FILE="\"$(STIM_DIR)/$(stim_file)\"" -DSRC_FMT="\"$(src_fmt)\"" -DDST_FMT="\"$(dst_fmt)\"" -DVECTOR_SIZE=$(vector_size) -DNUM_PIPE_REGS=$(num_pipe_regs) -DPROB_STALL=$(prob_stall) -DNUM_VECTORS=$(num_vectors)
 
 VLOG_FLAGS += -svinputport=compat
