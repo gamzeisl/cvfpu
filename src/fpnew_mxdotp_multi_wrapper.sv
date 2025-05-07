@@ -20,7 +20,7 @@ module fpnew_mxdotp_multi_wrapper #(
   parameter fpnew_pkg::fmt_logic_t   FpFmtConfig = '1,
   parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 0,
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
+  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::DISTRIBUTED,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
   parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,

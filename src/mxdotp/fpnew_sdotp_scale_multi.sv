@@ -21,7 +21,7 @@ module fpnew_sdotp_scale_multi #(
   parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100000000, // Supported destination formats (FP32)
   parameter int unsigned             VectorSize = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 4 `endif,
   parameter int unsigned             NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif,
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
+  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::DISTRIBUTED,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
   // Do not change

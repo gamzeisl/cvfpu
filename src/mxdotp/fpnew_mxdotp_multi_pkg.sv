@@ -27,7 +27,7 @@ package fpnew_mxdotp_multi_pkg;
   localparam fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100010000; // Supported destination formats (FP32)
   localparam int unsigned             VectorSize = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 8 `endif;
   localparam int unsigned             NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
-  localparam fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE;
+  localparam fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::DISTRIBUTED;
   localparam type                     TagType     = logic;
   localparam type                     AuxType     = logic;
 

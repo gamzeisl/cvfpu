@@ -21,7 +21,7 @@ module fpnew_mxdotp_multi #(
   parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100010000, // Supported destination formats (FP32, BF16)
   parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 0,
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::BEFORE,
+  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::DISTRIBUTED,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
   // Do not change
