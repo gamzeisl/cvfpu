@@ -1,4 +1,4 @@
-// Copyright 2019-2024 ETH Zurich and University of Bologna.
+// Copyright 2024-2025 ETH Zurich and University of Bologna.
 //
 // Copyright and related rights are licensed under the Solderpad Hardware
 // License, Version 0.51 (the "License"); you may not use this file except in
@@ -18,25 +18,20 @@
 import fpnew_mxdotp_multi_pkg::*;
 
 module fpnew_mxdotp_multi #(
-  parameter fpnew_pkg::fmt_logic_t   DstDotpFpFmtConfig = 9'b100010000, // Supported destination formats (FP32, BF16)
-  parameter int unsigned             VectorSize  = 8,
-  parameter int unsigned             NumPipeRegs = 0,
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::DISTRIBUTED,
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
   // Do not change
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig),
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig),
   localparam int unsigned SCALE_WIDTH = 8,
-  
   localparam int unsigned NUM_OPERANDS = 2*VectorSize+1, // scale is not included
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS
 ) (
   input  logic                        clk_i,
   input  logic                        rst_ni,
   // Input signals
-  input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i, // 4 operands
-  input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i, // 4 operands
+  input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i,
+  input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i,
   input  logic [1:0][SCALE_WIDTH-1:0] operands_c_i, // 2 operands
   input  logic [DST_WIDTH-1:0]        operand_d_i, // 1 operand, accumulator
   input  logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i,

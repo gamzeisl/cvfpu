@@ -1,4 +1,4 @@
-// Copyright 2019-2021 ETH Zurich and University of Bologna.
+// Copyright 2024-2025 ETH Zurich and University of Bologna.
 //
 // Copyright and related rights are licensed under the Solderpad Hardware
 // License, Version 0.51 (the "License"); you may not use this file except in
@@ -11,13 +11,11 @@
 //
 // SPDX-License-Identifier: SHL-0.51
 
-// Author: Gianna Paulin <pauling@iis.ee.ethz.ch>
-// Author: Luca Bertaccini <lbertaccini@iis.ee.ethz.ch>
-// Author: Stefan Mach <smach@iis.ee.ethz.ch>
+// Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
 
 module fpnew_mxdotp_multi_wrapper #(
   parameter int unsigned             LaneWidth   = 64,
-  parameter fpnew_pkg::fmt_logic_t   FpFmtConfig = '1,
+  // TODO:
   parameter int unsigned             VectorSize  = 8,
   parameter int unsigned             NumPipeRegs = 0,
   parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::DISTRIBUTED,
@@ -28,7 +26,7 @@ module fpnew_mxdotp_multi_wrapper #(
   localparam fpnew_pkg::fmt_logic_t FpSrcFmtConfig = 9'b000101111, // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
   localparam fpnew_pkg::fmt_logic_t FpDstFmtConfig = 9'b100000000, // Supported destination formats (FP32)
   localparam int                    SRC_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpSrcFmtConfig), 1),
-  localparam int                    DST_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpDstFmtConfig), 1), // do not change, current assumption of sdotpex_multi
+  localparam int                    DST_WIDTH      = fpnew_pkg::maximum(fpnew_pkg::max_fp_width(FpDstFmtConfig), 1),
   localparam int unsigned           SCALE_WIDTH    = 8,
   localparam int unsigned           NUM_OPERANDS   = 2*VectorSize+1, // scale is not included
   localparam int                    OPERAND_WIDTH  = LaneWidth,
@@ -120,10 +118,6 @@ module fpnew_mxdotp_multi_wrapper #(
   end
 
   fpnew_mxdotp_multi #(
-    .SrcDotpFpFmtConfig ( FpSrcFmtConfig ), // FP8, FP8ALT 
-    .DstDotpFpFmtConfig ( FpDstFmtConfig ), // FP32
-    .NumPipeRegs        ( NumPipeRegs    ),
-    .PipeConfig         ( PipeConfig     ),
     .TagType            ( TagType        ),
     .AuxType            ( AuxType        )
   ) i_fpnew_mxdotp_multi (

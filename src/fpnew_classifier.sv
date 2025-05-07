@@ -55,12 +55,12 @@ module fpnew_classifier #(
       value    = operands_i[op];
       is_boxed = is_boxed_i[op];
 
-      if (MX == 1 && FpFormat == fpnew_pkg::fp_format_e'(5)) begin
+      if (MX == 1 && FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP8ALT)) begin
         // No inf in E4M3
-        is_inf    = 0;
+        is_inf    = 1'b0;
         is_nan    = !is_boxed || ((value.exponent == '1) && (value.mantissa == '1));
         is_normal = is_boxed && (value.exponent != '0) && !is_nan;
-      end else if (MX == 1 && (FpFormat == fpnew_pkg::fp_format_e'(6) || FpFormat == fpnew_pkg::fp_format_e'(7) || FpFormat == fpnew_pkg::fp_format_e'(8))) begin
+      end else if (MX == 1 && (FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP6) || FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP6ALT) || FpFormat == fpnew_pkg::fp_format_e'(fpnew_pkg::FP4))) begin
         // No inf or nan in E3M2, E2M3, E2M1
         is_inf    = 0;
         is_nan    = 0;
