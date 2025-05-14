@@ -1,0 +1,12 @@
+stages:
+  - test
+
+# Trigger tests in the golden repo
+trigger_golden_ci:
+  stage: test
+  trigger:
+    project: mx/mxfp
+    branch: support_fp6-fp4
+    strategy: depend # Waits for golden CI result
+  variables:
+    RTL_COMMIT_SHA: $CI_COMMIT_SHA
