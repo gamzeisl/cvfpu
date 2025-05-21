@@ -8,7 +8,7 @@ ROOT_DIR := $(patsubst %/,%, $(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 INSTALL_PREFIX       ?= install
 INSTALL_DIR           = ${ROOT_DIR}/${INSTALL_PREFIX}
 BENDER_INSTALL_DIR    = ${INSTALL_DIR}/bender
-STIM_DIR			 ?= ${ROOT_DIR}/../../testvectors
+STIM_DIR			 ?= ${ROOT_DIR}/../../mx_fp/testvectors
 
 VENV_BIN=venv/bin/
 
