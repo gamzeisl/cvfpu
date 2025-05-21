@@ -169,7 +169,7 @@ module fpnew_mxdotp_multi #(
   fp_fp4_src_t [VectorSize-1:0] fp4_operands_a, fp4_operands_b;
   fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_a, fp4_info_b;
 
-  classifier #(
+  fpnew_mxdotp_classifier #(
   ) i_classifier (
     .operands_post_inp_pipe(operands_post_inp_pipe),
     .fp4_operands_post_inp_pipe(fp4_operands_post_inp_pipe),
@@ -201,7 +201,7 @@ module fpnew_mxdotp_multi #(
   fpnew_pkg::status_t   special_status;
   logic                 result_is_special;
 
-  special_cases #(
+  fpnew_mxdotp_special_cases #(
   ) i_special_cases (
     .operands_a(operands_a),
     .operands_b(operands_b),
@@ -223,7 +223,7 @@ module fpnew_mxdotp_multi #(
   // ------------------
   logic signed [SCALE_WIDTH:0] scale; // +1 for addition
 
-  scale_adder #(
+  fpnew_mxdotp_scale_adder #(
   ) i_scale_adder (
     .operands_c(operands_c),
     .scale(scale)
@@ -235,7 +235,7 @@ module fpnew_mxdotp_multi #(
   logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
   logic signed [VectorSize-1:0][2*FP4_PREC_BITS   :0] fp4_product_signed;  // two's complement product
 
-  vector_multiplier #(
+  fpnew_mxdotp_vector_multiplier #(
     .SrcType(fp_src_t),
     .PrecisionBits(PRECISION_BITS)
   ) i_vector_multiplier_fp8 (
@@ -247,7 +247,7 @@ module fpnew_mxdotp_multi #(
   );
 
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
-    vector_multiplier #(
+    fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp_fp4_src_t),
       .PrecisionBits(FP4_PREC_BITS)
     ) i_vector_multiplier_fp4 (
@@ -267,7 +267,7 @@ module fpnew_mxdotp_multi #(
   logic signed [VectorSize-1:0][PROD_SHIFT_WIDTH-1:0] shifted_product;
   logic signed [VectorSize-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
-  product_shifter #(
+  fpnew_mxdotp_product_shifter #(
     .SrcType(fp_src_t),
     .IsFullWidth(1),
     .PrecisionBits(PRECISION_BITS),
@@ -284,7 +284,7 @@ module fpnew_mxdotp_multi #(
   );
 
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
-    product_shifter #(
+    fpnew_mxdotp_product_shifter #(
       .SrcType(fp_fp4_src_t),
       .IsFullWidth(0),
       .PrecisionBits(FP4_PREC_BITS),
@@ -310,7 +310,7 @@ module fpnew_mxdotp_multi #(
   logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4;
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
-  adder_tree #(
+  fpnew_mxdotp_adder_tree #(
     .InputWidth(PROD_SHIFT_WIDTH),
     .OutputWidth(SOP_FIXED_WIDTH)
   ) i_adder_tree_fp8 (
@@ -319,7 +319,7 @@ module fpnew_mxdotp_multi #(
   );
 
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
-    adder_tree #(
+    fpnew_mxdotp_adder_tree #(
       .InputWidth(FP4_PROD_SHIFT_WIDTH),
       .OutputWidth(FP4_SUM_WIDTH)
     ) i_adder_tree_fp4 (
@@ -331,7 +331,7 @@ module fpnew_mxdotp_multi #(
   end
 
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_fp8_adder
-    adder #(
+    fpnew_mxdotp_adder #(
     ) i_adder_fp8_fp4 (
       .sum_product_fp8(sum_product_fp8),
       .sum_product_fp4(sum_product_fp4),
@@ -437,7 +437,7 @@ module fpnew_mxdotp_multi #(
   logic accumulator_sticky;
   logic signed [DST_PRECISION_BITS-1:0] accumulator_remaining;
 
-  accumulator_shift #(
+  fpnew_mxdotp_accumulator_shift #(
   ) i_accumulator_shift (
     .sum_product_q(sum_product_q),
     .scale_q2(scale_q2),
@@ -458,7 +458,7 @@ module fpnew_mxdotp_multi #(
   // -----------------
   logic signed [LZC_SUM_WIDTH-1:0] sum_product_accumulator_extended;
 
-  add_accumulator_sop #(
+  fpnew_mxdotp_add_accumulator_sop #(
   ) i_add_accumulator_sop (
     .sum_product_q(sum_product_q),
     .accumulator_shifted(accumulator_shifted),
@@ -475,7 +475,7 @@ module fpnew_mxdotp_multi #(
   logic                                 sticky_after_norm;
   logic signed [DST_EXP_WIDTH-1:0]      final_exponent;
 
-  normalizer #(
+  fpnew_mxdotp_normalizer #(
   ) i_normalizer (
     .sum_product_accumulator_extended(sum_product_accumulator_extended),
     .accumulator_sticky(accumulator_sticky),
@@ -501,7 +501,7 @@ module fpnew_mxdotp_multi #(
   logic of_before_round, of_after_round; // overflow
   logic uf_before_round, uf_after_round; // underflow
 
-  rounder #(
+  fpnew_mxdotp_rounder #(
   ) i_rounder (
     .clk_i(clk_i),
     .rst_ni(rst_ni),

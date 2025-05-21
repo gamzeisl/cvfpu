@@ -13,7 +13,7 @@
 
 // Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
 
-module classifier 
+module fpnew_mxdotp_classifier 
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -205,7 +205,7 @@ module classifier
   end
 endmodule
 
-module special_cases 
+module fpnew_mxdotp_special_cases 
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -350,7 +350,7 @@ module special_cases
   assign special_result = fmt_special_result[dst_fmt_q];
 endmodule
 
-module scale_adder
+module fpnew_mxdotp_scale_adder
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -364,7 +364,7 @@ module scale_adder
   assign scale = signed'(operands_c[0]) + signed'(operands_c[1]);
 endmodule
 
-module vector_multiplier
+module fpnew_mxdotp_vector_multiplier
   import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter type         SrcType       = logic,
@@ -392,7 +392,7 @@ module vector_multiplier
   end
 endmodule
 
-module product_shifter
+module fpnew_mxdotp_product_shifter
   import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter type         SrcType       = logic,
@@ -433,7 +433,7 @@ module product_shifter
   end
 endmodule
 
-module adder_tree
+module fpnew_mxdotp_adder_tree
   import fpnew_mxdotp_multi_pkg::*;
 #(
   parameter int unsigned InputWidth  = 4,
@@ -455,7 +455,7 @@ module adder_tree
   end
 endmodule
 
-module adder
+module fpnew_mxdotp_adder
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -472,7 +472,7 @@ module adder
   assign sum_product = sum_product_fp8 + sum_product_fp4_shifted;
 endmodule
 
-module accumulator_shift
+module fpnew_mxdotp_accumulator_shift
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -536,7 +536,7 @@ module accumulator_shift
   end
 endmodule
 
-module add_accumulator_sop
+module fpnew_mxdotp_add_accumulator_sop
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -553,7 +553,7 @@ module add_accumulator_sop
   assign sum_product_accumulator_extended = {sum_product_accumulator, accumulator_remaining};
 endmodule
 
-module twos_compl
+module fpnew_mxdotp_twos_compl
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -582,7 +582,7 @@ module twos_compl
   end
 endmodule
 
-module norm_shift
+module fpnew_mxdotp_norm_shift
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -600,7 +600,7 @@ module norm_shift
   assign sum_shifted = sum_magnitude << norm_shamt;
 endmodule
 
-module normalizer
+module fpnew_mxdotp_normalizer
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
@@ -639,7 +639,7 @@ module normalizer
   // If sum is negative, complement to feed into leading zero counter
   assign final_sign    = sum_product_accumulator_extended[LZC_SUM_WIDTH-1];
 
-  twos_compl #(
+  fpnew_mxdotp_twos_compl #(
   ) i_twos_compl (
     .sum_product_accumulator_extended ( sum_product_accumulator_extended ),
     .final_sign                      ( final_sign                      ),
@@ -678,7 +678,7 @@ module normalizer
     end
   end
 
-  norm_shift #(
+  fpnew_mxdotp_norm_shift #(
   ) i_norm_shift (
     .sum_shifted          ( sum_shifted          ),
     .sum_magnitude        ( sum_magnitude        ),
@@ -691,7 +691,7 @@ module normalizer
   assign sticky_after_norm                 = (|sum_sticky_bits) | accumulator_sticky;
 endmodule
 
-module rounder
+module fpnew_mxdotp_rounder
   import fpnew_mxdotp_multi_pkg::*;
 #(
 ) (
