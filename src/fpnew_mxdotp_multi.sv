@@ -32,6 +32,8 @@ module fpnew_mxdotp_multi #(
   // Input signals
   input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i,
   input  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i,
+  input  logic [1:0] operands_a_fp6_rem_i,
+  input  logic [1:0] operands_b_fp6_rem_i,
   input  logic [1:0][SCALE_WIDTH-1:0] operands_c_i, // 2 operands
   input  logic [DST_WIDTH-1:0]        operand_d_i, // 1 operand, accumulator
   input  logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i,
@@ -67,6 +69,8 @@ module fpnew_mxdotp_multi #(
   // Selected pipeline output signals as non-arrays
   logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_q;
   logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_q;
+  logic [1:0] operands_a_fp6_rem_q;
+  logic [1:0] operands_b_fp6_rem_q;
   logic [1:0][SCALE_WIDTH-1:0] operands_c_q;
   logic [DST_WIDTH-1:0] operand_d_q;
   fpnew_pkg::fp_format_e src_fmt_q;
@@ -75,6 +79,8 @@ module fpnew_mxdotp_multi #(
   // Input pipeline signals, index i holds signal after i register stages
   logic                  [0:NUM_INP_REGS][VectorSize-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_a_q;
   logic                  [0:NUM_INP_REGS][VectorSize-1:0][SRC_WIDTH-1:0]   inp_pipe_operands_b_q;
+  logic                  [0:NUM_INP_REGS][1:0]                             inp_pipe_operands_a_fp6_rem_q;
+  logic                  [0:NUM_INP_REGS][1:0]                             inp_pipe_operands_b_fp6_rem_q;
   logic                  [0:NUM_INP_REGS][1:0][SCALE_WIDTH-1:0] inp_pipe_operands_c_q;
   logic                  [0:NUM_INP_REGS][DST_WIDTH-1:0]        inp_pipe_operand_d_q;
   logic                  [0:NUM_INP_REGS][NUM_FORMATS-1:0][NUM_OPERANDS-1:0] inp_pipe_is_boxed_q;
@@ -93,6 +99,8 @@ module fpnew_mxdotp_multi #(
   // Input stage: First element of pipeline is taken from inputs
   assign inp_pipe_operands_a_q[0]   = operands_a_i;
   assign inp_pipe_operands_b_q[0]   = operands_b_i;
+  assign inp_pipe_operands_a_fp6_rem_q[0] = operands_a_fp6_rem_i;
+  assign inp_pipe_operands_b_fp6_rem_q[0] = operands_b_fp6_rem_i;
   assign inp_pipe_operands_c_q[0]   = operands_c_i;
   assign inp_pipe_operand_d_q[0]    = operand_d_i;
   assign inp_pipe_is_boxed_q[0]     = is_boxed_i;
@@ -122,6 +130,8 @@ module fpnew_mxdotp_multi #(
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(inp_pipe_operands_a_q[i+1],   inp_pipe_operands_a_q[i],   reg_ena, '0)
     `FFL(inp_pipe_operands_b_q[i+1],   inp_pipe_operands_b_q[i],   reg_ena, '0)
+    `FFL(inp_pipe_operands_a_fp6_rem_q[i+1], inp_pipe_operands_a_fp6_rem_q[i], reg_ena, '0)
+    `FFL(inp_pipe_operands_b_fp6_rem_q[i+1], inp_pipe_operands_b_fp6_rem_q[i], reg_ena, '0)
     `FFL(inp_pipe_operands_c_q[i+1],   inp_pipe_operands_c_q[i],   reg_ena, '0)
     `FFL(inp_pipe_operand_d_q[i+1],    inp_pipe_operand_d_q[i],    reg_ena, '0)
     `FFL(inp_pipe_is_boxed_q[i+1],     inp_pipe_is_boxed_q[i],     reg_ena, '0)
@@ -137,20 +147,49 @@ module fpnew_mxdotp_multi #(
   // Output stage: assign selected pipe outputs to signals for later use
   assign operands_a_q   = inp_pipe_operands_a_q[NUM_INP_REGS];
   assign operands_b_q   = inp_pipe_operands_b_q[NUM_INP_REGS];
+  assign operands_a_fp6_rem_q = inp_pipe_operands_a_fp6_rem_q[NUM_INP_REGS];
+  assign operands_b_fp6_rem_q = inp_pipe_operands_b_fp6_rem_q[NUM_INP_REGS];
   assign operands_c_q   = inp_pipe_operands_c_q[NUM_INP_REGS];
   assign operand_d_q    = inp_pipe_operand_d_q[NUM_INP_REGS];
   assign src_fmt_q      = inp_pipe_src_fmt_q[NUM_INP_REGS];
   assign dst_fmt_q      = inp_pipe_dst_fmt_q[NUM_INP_REGS];
 
   logic [2*VectorSize-1:0][SRC_WIDTH-1:0] operands_post_inp_pipe;
-  logic [2*VectorSize-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe;
+  logic [2*FP6_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp6_operands_post_inp_pipe;
+  logic [2*FP4_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe;
+
+  logic [63:0] flat_operands_a_q;
+  logic [63:0] flat_operands_b_q;
 
   always_comb begin
+    fp6_operands_post_inp_pipe = '0;
     fp4_operands_post_inp_pipe = '0;
     operands_post_inp_pipe = {operands_b_q, operands_a_q};
-    if (src_fmt_q == fpnew_pkg::FP4) begin
-      for (int i = 0; i < 2*VectorSize; i++) begin
-        fp4_operands_post_inp_pipe[i] = {{(SRC_WIDTH-4){1'b0}}, operands_post_inp_pipe[i][7:4]};
+    flat_operands_a_q = operands_a_q;
+    flat_operands_b_q = operands_b_q;
+    // TODO: FP6
+    if (src_fmt_q == fpnew_pkg::FP6 || src_fmt_q == fpnew_pkg::FP6ALT) begin
+      for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin
+        fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(48+i*6) +: 6]};
+        fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(48+i*6) +: 6]};
+        if (i == FP6_VECTOR_SIZE-1) begin
+          fp6_operands_post_inp_pipe[i][5:4] = operands_a_fp6_rem_q;
+          fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE][5:4] = operands_b_fp6_rem_q;
+        end
+      end
+      for (int i = 0; i < VectorSize; i++) begin
+        operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(i*6) +: 6]};
+        operands_post_inp_pipe[i+VectorSize] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(i*6) +: 6]};
+      end
+    end else if (src_fmt_q == fpnew_pkg::FP4) begin
+      for (int i = 0; i < VectorSize; i++) begin
+        if (i < FP6_VECTOR_SIZE) begin
+          fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-4){1'b0}}, operands_a_q[i][7:4]};
+          fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_b_q[i][7:4]};
+        end else begin
+          fp4_operands_post_inp_pipe[i-FP6_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_a_q[i][7:4]};
+          fp4_operands_post_inp_pipe[i-FP6_VECTOR_SIZE+FP4_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_b_q[i][7:4]};
+        end
       end
     end
   end
@@ -166,12 +205,16 @@ module fpnew_mxdotp_multi #(
   fpnew_pkg::fp_info_t [1:0] info_c;
   fpnew_pkg::fp_info_t info_d;
 
-  fp_fp4_src_t [VectorSize-1:0] fp4_operands_a, fp4_operands_b;
-  fpnew_pkg::fp_info_t [VectorSize-1:0] fp4_info_a, fp4_info_b;
+  fp6_src_t [FP6_VECTOR_SIZE-1:0] fp6_operands_a, fp6_operands_b;
+  fpnew_pkg::fp_info_t [FP6_VECTOR_SIZE-1:0] fp6_info_a, fp6_info_b;
+
+  fp4_src_t [FP4_VECTOR_SIZE-1:0] fp4_operands_a, fp4_operands_b;
+  fpnew_pkg::fp_info_t [FP4_VECTOR_SIZE-1:0] fp4_info_a, fp4_info_b;
 
   fpnew_mxdotp_classifier #(
   ) i_classifier (
     .operands_post_inp_pipe(operands_post_inp_pipe),
+    .fp6_operands_post_inp_pipe(fp6_operands_post_inp_pipe),
     .fp4_operands_post_inp_pipe(fp4_operands_post_inp_pipe),
     .operands_c_q(operands_c_q),
     .operand_d_q(operand_d_q),
@@ -180,14 +223,18 @@ module fpnew_mxdotp_multi #(
     .dst_fmt_q(dst_fmt_q),
     .inp_pipe_op_mod_q(inp_pipe_op_mod_q),
     .info_a(info_a),
+    .fp6_info_a(fp6_info_a),
     .fp4_info_a(fp4_info_a),
     .info_b(info_b),
+    .fp6_info_b(fp6_info_b),
     .fp4_info_b(fp4_info_b),
     .info_c(info_c),
     .info_d(info_d),
     .operands_a(operands_a),
+    .fp6_operands_a(fp6_operands_a),
     .fp4_operands_a(fp4_operands_a),
     .operands_b(operands_b),
+    .fp6_operands_b(fp6_operands_b),
     .fp4_operands_b(fp4_operands_b),
     .operands_c(operands_c),
     .operand_d(operand_d)
@@ -233,10 +280,12 @@ module fpnew_mxdotp_multi #(
   // Product data path
   // ------------------
   logic signed [VectorSize-1:0][2*PRECISION_BITS  :0] product_signed;  // two's complement product
-  logic signed [VectorSize-1:0][2*FP4_PREC_BITS   :0] fp4_product_signed;  // two's complement product
+  logic signed [FP6_VECTOR_SIZE-1:0][2*FP6_PREC_BITS   :0] fp6_product_signed;  // two's complement product
+  logic signed [FP4_VECTOR_SIZE-1:0][2*FP4_PREC_BITS   :0] fp4_product_signed;  // two's complement product
 
   fpnew_mxdotp_vector_multiplier #(
     .SrcType(fp_src_t),
+    .VectorSize(VectorSize),
     .PrecisionBits(PRECISION_BITS)
   ) i_vector_multiplier_fp8 (
     .operands_a(operands_a),
@@ -246,9 +295,25 @@ module fpnew_mxdotp_multi #(
     .product_signed(product_signed)
   );
 
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_multiplier
+    fpnew_mxdotp_vector_multiplier #(
+      .SrcType(fp6_src_t),
+      .VectorSize(FP6_VECTOR_SIZE),
+      .PrecisionBits(FP6_PREC_BITS)
+    ) i_vector_multiplier_fp6 (
+      .operands_a(fp6_operands_a),
+      .operands_b(fp6_operands_b),
+      .info_a(fp6_info_a),
+      .info_b(fp6_info_b),
+      .product_signed(fp6_product_signed)
+    );
+  end else begin
+    assign fp6_product_signed = '0;
+  end
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
     fpnew_mxdotp_vector_multiplier #(
-      .SrcType(fp_fp4_src_t),
+      .SrcType(fp4_src_t),
+      .VectorSize(FP4_VECTOR_SIZE),
       .PrecisionBits(FP4_PREC_BITS)
     ) i_vector_multiplier_fp4 (
       .operands_a(fp4_operands_a),
@@ -265,10 +330,12 @@ module fpnew_mxdotp_multi #(
   // Shift data path
   // ------------------
   logic signed [VectorSize-1:0][PROD_SHIFT_WIDTH-1:0] shifted_product;
-  logic signed [VectorSize-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
+  logic signed [FP6_VECTOR_SIZE-1:0][PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
+  logic signed [FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
   fpnew_mxdotp_product_shifter #(
     .SrcType(fp_src_t),
+    .VectorSize(VectorSize),
     .IsFullWidth(1),
     .PrecisionBits(PRECISION_BITS),
     .ExpWidth(EXP_WIDTH),
@@ -283,9 +350,30 @@ module fpnew_mxdotp_multi #(
     .shifted_product(shifted_product)
   );
 
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_product_shifter
+      fpnew_mxdotp_product_shifter #(
+      .SrcType(fp6_src_t),
+      .VectorSize(FP6_VECTOR_SIZE),
+      .IsFullWidth(1), // TODO: Check if makes sense
+      .PrecisionBits(FP6_PREC_BITS),
+      .ExpWidth(5), // TODO: check this
+      .OutputWidth(PROD_SHIFT_WIDTH) // TODO: Check this
+    ) i_product_shifter_fp6 (
+      .operands_a(fp6_operands_a),
+      .operands_b(fp6_operands_b),
+      .info_a(fp6_info_a),
+      .info_b(fp6_info_b),
+      .product_signed(fp6_product_signed),
+      .src_fmt_q(src_fmt_q),
+      .shifted_product(fp6_shifted_product)
+    );
+  end else begin
+    assign fp6_shifted_product = '0;
+  end
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
     fpnew_mxdotp_product_shifter #(
-      .SrcType(fp_fp4_src_t),
+      .SrcType(fp4_src_t),
+      .VectorSize(FP4_VECTOR_SIZE),
       .IsFullWidth(0),
       .PrecisionBits(FP4_PREC_BITS),
       .ExpWidth(3),
@@ -307,10 +395,12 @@ module fpnew_mxdotp_multi #(
   // Adder data path
   // ------------------
   logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8;
+  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp6;
   logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4;
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
   fpnew_mxdotp_adder_tree #(
+    .VectorSize(VectorSize),
     .InputWidth(PROD_SHIFT_WIDTH),
     .OutputWidth(SOP_FIXED_WIDTH)
   ) i_adder_tree_fp8 (
@@ -318,8 +408,21 @@ module fpnew_mxdotp_multi #(
     .sum_product(sum_product_fp8)
   );
 
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_adder_tree
+    fpnew_mxdotp_adder_tree #(
+      .VectorSize(FP6_VECTOR_SIZE),
+      .InputWidth(PROD_SHIFT_WIDTH), // TODO: Check this: either FP4 like add then shift, or FP8 like shift then add
+      .OutputWidth(SOP_FIXED_WIDTH)
+    ) i_adder_tree_fp6 (
+      .shifted_product(fp6_shifted_product),
+      .sum_product(sum_product_fp6)
+    );
+  end else begin
+    assign sum_product_fp6 = '0;
+  end
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
     fpnew_mxdotp_adder_tree #(
+      .VectorSize(FP4_VECTOR_SIZE),
       .InputWidth(FP4_PROD_SHIFT_WIDTH),
       .OutputWidth(FP4_SUM_WIDTH)
     ) i_adder_tree_fp4 (
@@ -330,7 +433,15 @@ module fpnew_mxdotp_multi #(
     assign sum_product_fp4 = '0;
   end
 
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_fp8_adder
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp4_fp6_fp8_adder
+    fpnew_mxdotp_adder_2 #(
+    ) i_adder_fp8_fp6_fp4 (
+      .sum_product_fp8(sum_product_fp8),
+      .sum_product_fp6(sum_product_fp6),
+      .sum_product_fp4(sum_product_fp4),
+      .sum_product(sum_product)
+    );
+  end else if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp8_fp4_adder
     fpnew_mxdotp_adder #(
     ) i_adder_fp8_fp4 (
       .sum_product_fp8(sum_product_fp8),
