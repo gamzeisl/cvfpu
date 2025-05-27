@@ -455,7 +455,7 @@ module fpnew_mxdotp_product_shifter
 #(
   parameter type         SrcType       = logic,
   parameter int unsigned VectorSize    = 8,
-  parameter bit          IsFullWidth   = 1,
+  parameter fpnew_pkg::fp_format_e SrcFmt   = fpnew_pkg::FP8,
   parameter int unsigned PrecisionBits = 4,
   parameter int unsigned ExpWidth      = 8,
   parameter int unsigned OutputWidth   = 70
@@ -479,14 +479,16 @@ module fpnew_mxdotp_product_shifter
     assign exponent_product[i] = operands_a[i].exponent + info_a[i].is_subnormal
                                 + operands_b[i].exponent + info_b[i].is_subnormal 
                                 - 2*signed'(fpnew_pkg::bias_constant(src_fmt_q));
-    if (IsFullWidth) begin
+    if (SrcFmt == fpnew_pkg::FP8) begin
       // Right shift the significand by anchor point - exponent
       // sum of four 9-bit numbers can be at most 11 bits, for 69 bits output we need to shift by 69 - 11 = 58
       // 58-30=28 plus inherit 6 fractional bits from the multiplication -> point moves to 28+6=34
       // max shift can be 58 (28 + exp-max(30)), min shift is 0 (28 + exp-min(-28))
       assign shifted_product[i] = signed'(product_signed[i]) << (signed'(SOP_SHIFT) + signed'(exponent_product[i]));
+    end else if (SrcFmt == fpnew_pkg::FP6) begin
+      assign shifted_product[i] = signed'(product_signed[i]) << (signed'(4) + signed'(exponent_product[i]));
     end else begin
-      // exponent_product is negative only for zero inputs
+      // exponent_product is negative only for zero inputs for FP4
       assign shifted_product[i] = signed'(product_signed[i]) << exponent_product[i];
     end
   end
@@ -537,7 +539,7 @@ module fpnew_mxdotp_adder_2
 #(
 ) (
   input  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8,
-  input  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp6,
+  input  logic signed [FP6_SUM_WIDTH-1:0]   sum_product_fp6,
   input  logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4,
   output logic signed [FIXED_SUM_WIDTH-1:0] sum_product
 );
@@ -548,7 +550,8 @@ module fpnew_mxdotp_adder_2
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product_fp6_shifted;
 
   assign sum_product_fp4_shifted = signed'(sum_product_fp4) << (SOP_SHIFT+2*(SUPER_MAN_BITS-FP4_MAN_BITS));
-  assign sum_product = sum_product_fp8 + sum_product_fp4_shifted + sum_product_fp6;
+  assign sum_product_fp6_shifted = signed'(sum_product_fp6) << (SOP_SHIFT-4+2*(SUPER_MAN_BITS-FP6_MAN_BITS));  // TODO:
+  assign sum_product = sum_product_fp8 + sum_product_fp4_shifted + sum_product_fp6_shifted;
 endmodule
 
 module fpnew_mxdotp_accumulator_shift

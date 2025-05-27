@@ -330,13 +330,13 @@ module fpnew_mxdotp_multi #(
   // Shift data path
   // ------------------
   logic signed [VectorSize-1:0][PROD_SHIFT_WIDTH-1:0] shifted_product;
-  logic signed [FP6_VECTOR_SIZE-1:0][PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
+  logic signed [FP6_VECTOR_SIZE-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
   logic signed [FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
   fpnew_mxdotp_product_shifter #(
     .SrcType(fp_src_t),
     .VectorSize(VectorSize),
-    .IsFullWidth(1),
+    .SrcFmt(fpnew_pkg::FP8),
     .PrecisionBits(PRECISION_BITS),
     .ExpWidth(EXP_WIDTH),
     .OutputWidth(PROD_SHIFT_WIDTH)
@@ -354,10 +354,10 @@ module fpnew_mxdotp_multi #(
       fpnew_mxdotp_product_shifter #(
       .SrcType(fp6_src_t),
       .VectorSize(FP6_VECTOR_SIZE),
-      .IsFullWidth(1), // TODO: Check if makes sense
+      .SrcFmt(fpnew_pkg::FP6), // TODO: Check if makes sense
       .PrecisionBits(FP6_PREC_BITS),
       .ExpWidth(5), // TODO: check this
-      .OutputWidth(PROD_SHIFT_WIDTH) // TODO: Check this
+      .OutputWidth(FP6_PROD_SHIFT_WIDTH) // TODO: Check this
     ) i_product_shifter_fp6 (
       .operands_a(fp6_operands_a),
       .operands_b(fp6_operands_b),
@@ -374,7 +374,7 @@ module fpnew_mxdotp_multi #(
     fpnew_mxdotp_product_shifter #(
       .SrcType(fp4_src_t),
       .VectorSize(FP4_VECTOR_SIZE),
-      .IsFullWidth(0),
+      .SrcFmt(fpnew_pkg::FP4),
       .PrecisionBits(FP4_PREC_BITS),
       .ExpWidth(3),
       .OutputWidth(FP4_PROD_SHIFT_WIDTH)
@@ -395,7 +395,7 @@ module fpnew_mxdotp_multi #(
   // Adder data path
   // ------------------
   logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8;
-  logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp6;
+  logic signed [FP6_SUM_WIDTH-1:0] sum_product_fp6;
   logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4;
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
@@ -411,8 +411,8 @@ module fpnew_mxdotp_multi #(
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_adder_tree
     fpnew_mxdotp_adder_tree #(
       .VectorSize(FP6_VECTOR_SIZE),
-      .InputWidth(PROD_SHIFT_WIDTH), // TODO: Check this: either FP4 like add then shift, or FP8 like shift then add
-      .OutputWidth(SOP_FIXED_WIDTH)
+      .InputWidth(FP6_PROD_SHIFT_WIDTH), // TODO: Check this: either FP4 like add then shift, or FP8 like shift then add
+      .OutputWidth(FP6_SUM_WIDTH) // TODO: Check this
     ) i_adder_tree_fp6 (
       .shifted_product(fp6_shifted_product),
       .sum_product(sum_product_fp6)
