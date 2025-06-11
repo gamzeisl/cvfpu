@@ -87,13 +87,13 @@ package fpnew_mxdotp_multi_pkg;
 
   // FP6 specific
   localparam int unsigned FP6_PROD_WIDTH       = 2*FP6_PREC_BITS + 1; // 2p+1 for the product
-  localparam int unsigned FP6_PROD_SHIFT_WIDTH = 2*(2**FP6_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP6)) + FP6_PROD_WIDTH + 1 + 4; // 2*(2^e-1-bias) + 2p+1 + 1, (2^e-1-bias): max shift amount, +1 for the sign bit; +4 is due to the minimum value of the sum of exponents for FP6 (-4)
-  localparam int unsigned FP6_SUM_WIDTH  = VECTOR_BITS + FP6_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1 + 1
+  localparam int unsigned FP6_PROD_SHIFT_WIDTH = 2*(2**FP6_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP6)) + FP6_PROD_WIDTH + 4; // 2*(2^e-1-bias) + 2p+1 + 4, (2^e-1-bias): max shift amount; +4 is due to the minimum value of the sum of exponents for FP6 (-4)
+  localparam int unsigned FP6_SUM_WIDTH  = $clog2(FP6_VECTOR_SIZE) + FP6_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1
 
   // FP4 specific
   localparam int unsigned FP4_PROD_WIDTH       = 2*FP4_PREC_BITS + 1; // 2p+1 for the product
-  localparam int unsigned FP4_PROD_SHIFT_WIDTH = 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_WIDTH + 1; // 2*(2^e-1-bias) + 2p+1 + 1, (2^e-1-bias): max shift amount, +1 for the sign bit
-  localparam int unsigned FP4_SUM_WIDTH  = VECTOR_BITS + FP4_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1 + 1
+  localparam int unsigned FP4_PROD_SHIFT_WIDTH = 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_WIDTH; // 2*(2^e-1-bias) + 2p+1, (2^e-1-bias): max shift amount
+  localparam int unsigned FP4_SUM_WIDTH  = $clog2(FP4_VECTOR_SIZE) + FP4_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1
 
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
