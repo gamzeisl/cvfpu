@@ -307,7 +307,7 @@ module fpnew_mxdotp_multi #(
       .info_b(fp6_info_b),
       .product_signed(fp6_product_signed)
     );
-  end else begin
+  end else begin : no_fp6_multiplier
     assign fp6_product_signed = '0;
   end
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_multiplier
@@ -322,7 +322,7 @@ module fpnew_mxdotp_multi #(
       .info_b(fp4_info_b),
       .product_signed(fp4_product_signed)
     );
-  end else begin
+  end else begin : no_fp4_multiplier
     assign fp4_product_signed = '0;
   end
 
@@ -367,7 +367,7 @@ module fpnew_mxdotp_multi #(
       .src_fmt_q(src_fmt_q),
       .shifted_product(fp6_shifted_product)
     );
-  end else begin
+  end else begin : no_fp6_product_shifter
     assign fp6_shifted_product = '0;
   end
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_product_shifter
@@ -387,7 +387,7 @@ module fpnew_mxdotp_multi #(
       .src_fmt_q(src_fmt_q),
       .shifted_product(fp4_shifted_product)
     );
-  end else begin
+  end else begin : no_fp4_product_shifter
     assign fp4_shifted_product = '0;
   end
 
@@ -417,7 +417,7 @@ module fpnew_mxdotp_multi #(
       .shifted_product(fp6_shifted_product),
       .sum_product(sum_product_fp6)
     );
-  end else begin
+  end else begin : no_fp6_adder_tree
     assign sum_product_fp6 = '0;
   end
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP4]) begin : fp4_adder_tree
@@ -429,7 +429,7 @@ module fpnew_mxdotp_multi #(
       .shifted_product(fp4_shifted_product),
       .sum_product(sum_product_fp4)
     );
-  end else begin
+  end else begin : no_fp4_adder_tree
     assign sum_product_fp4 = '0;
   end
 
@@ -448,7 +448,7 @@ module fpnew_mxdotp_multi #(
       .sum_product_fp4(sum_product_fp4),
       .sum_product(sum_product)
     );
-  end else begin
+  end else begin : fp8_adder
     assign sum_product = sum_product_fp8;
   end
 
