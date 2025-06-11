@@ -158,8 +158,8 @@ module fpnew_mxdotp_multi #(
   logic [2*FP6_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp6_operands_post_inp_pipe;
   logic [2*FP4_VECTOR_SIZE-1:0][SRC_WIDTH-1:0] fp4_operands_post_inp_pipe;
 
-  logic [63:0] flat_operands_a_q;
-  logic [63:0] flat_operands_b_q;
+  logic [VectorSize*SRC_WIDTH-1:0] flat_operands_a_q;
+  logic [VectorSize*SRC_WIDTH-1:0] flat_operands_b_q;
 
   always_comb begin
     fp6_operands_post_inp_pipe = '0;
@@ -167,26 +167,26 @@ module fpnew_mxdotp_multi #(
     operands_post_inp_pipe = {operands_b_q, operands_a_q};
     flat_operands_a_q = operands_a_q;
     flat_operands_b_q = operands_b_q;
-    // TODO: FP6
+    // TODO: FP6 and FP4 without FP8
     if (src_fmt_q == fpnew_pkg::FP6 || src_fmt_q == fpnew_pkg::FP6ALT) begin
-      for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin
+      for (int i = 0; i < FP6_VECTOR_SIZE; i++) begin // Last 3 elements use FP6 datapath
         fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(48+i*6) +: 6]};
         fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(48+i*6) +: 6]};
-        if (i == FP6_VECTOR_SIZE-1) begin
+        if (i == FP6_VECTOR_SIZE-1) begin // Last element of the FP6 remainder extends to 66 bits
           fp6_operands_post_inp_pipe[i][5:4] = operands_a_fp6_rem_q;
           fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE][5:4] = operands_b_fp6_rem_q;
         end
       end
-      for (int i = 0; i < VectorSize; i++) begin
+      for (int i = 0; i < VectorSize; i++) begin // Top 8 elements use FP8 datapath
         operands_post_inp_pipe[i] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_a_q[(i*6) +: 6]};
         operands_post_inp_pipe[i+VectorSize] = {{(SRC_WIDTH-6){1'b0}}, flat_operands_b_q[(i*6) +: 6]};
       end
     end else if (src_fmt_q == fpnew_pkg::FP4) begin
       for (int i = 0; i < VectorSize; i++) begin
-        if (i < FP6_VECTOR_SIZE) begin
+        if (i < FP6_VECTOR_SIZE) begin // First 3 elements use FP6 datapath
           fp6_operands_post_inp_pipe[i] = {{(SRC_WIDTH-4){1'b0}}, operands_a_q[i][7:4]};
           fp6_operands_post_inp_pipe[i+FP6_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_b_q[i][7:4]};
-        end else begin
+        end else begin // Last 5 elements use FP4 datapath, remaining elements already use FP8 datapath via operands_post_inp_pipe
           fp4_operands_post_inp_pipe[i-FP6_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_a_q[i][7:4]};
           fp4_operands_post_inp_pipe[i-FP6_VECTOR_SIZE+FP4_VECTOR_SIZE] = {{(SRC_WIDTH-4){1'b0}}, operands_b_q[i][7:4]};
         end
@@ -248,22 +248,29 @@ module fpnew_mxdotp_multi #(
   fpnew_pkg::status_t   special_status;
   logic                 result_is_special;
 
-  fpnew_mxdotp_special_cases #(
-  ) i_special_cases (
-    .operands_a(operands_a),
-    .operands_b(operands_b),
-    .operands_c(operands_c),
-    .operand_d(operand_d),
-    .info_a(info_a),
-    .info_b(info_b),
-    .info_c(info_c),
-    .info_d(info_d),
-    .src_fmt_q(src_fmt_q),
-    .dst_fmt_q(dst_fmt_q),
-    .special_result(special_result),
-    .special_status(special_status),
-    .result_is_special(result_is_special)
-  );
+  // Inf and NaN do not exists in FP6 and FP4 formats
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP8] || SrcDotpFpFmtConfig[fpnew_pkg::FP8ALT]) begin : special_case_handling
+    fpnew_mxdotp_special_cases #(
+    ) i_special_cases (
+      .operands_a(operands_a),
+      .operands_b(operands_b),
+      .operands_c(operands_c),
+      .operand_d(operand_d),
+      .info_a(info_a),
+      .info_b(info_b),
+      .info_c(info_c),
+      .info_d(info_d),
+      .src_fmt_q(src_fmt_q),
+      .dst_fmt_q(dst_fmt_q),
+      .special_result(special_result),
+      .special_status(special_status),
+      .result_is_special(result_is_special)
+    );
+  end else begin : no_special_case_handling
+    assign special_result = '0;
+    assign special_status = fpnew_pkg::status_t'(0);
+    assign result_is_special = 1'b0;
+  end
 
   // ------------------
   // Scale data path
@@ -283,19 +290,23 @@ module fpnew_mxdotp_multi #(
   logic signed [FP6_VECTOR_SIZE-1:0][2*FP6_PREC_BITS   :0] fp6_product_signed;  // two's complement product
   logic signed [FP4_VECTOR_SIZE-1:0][2*FP4_PREC_BITS   :0] fp4_product_signed;  // two's complement product
 
-  fpnew_mxdotp_vector_multiplier #(
-    .SrcType(fp_src_t),
-    .VectorSize(VectorSize),
-    .PrecisionBits(PRECISION_BITS)
-  ) i_vector_multiplier_fp8 (
-    .operands_a(operands_a),
-    .operands_b(operands_b),
-    .info_a(info_a),
-    .info_b(info_b),
-    .product_signed(product_signed)
-  );
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP8] || SrcDotpFpFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_multiplier
+    fpnew_mxdotp_vector_multiplier #(
+      .SrcType(fp_src_t),
+      .VectorSize(VectorSize),
+      .PrecisionBits(PRECISION_BITS)
+    ) i_vector_multiplier_fp8 (
+      .operands_a(operands_a),
+      .operands_b(operands_b),
+      .info_a(info_a),
+      .info_b(info_b),
+      .product_signed(product_signed)
+    );
+  end else begin : no_fp8_multiplier
+    assign product_signed = '0;
+  end
 
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_multiplier
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6] || SrcDotpFpFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_multiplier
     fpnew_mxdotp_vector_multiplier #(
       .SrcType(fp6_src_t),
       .VectorSize(FP6_VECTOR_SIZE),
@@ -333,31 +344,35 @@ module fpnew_mxdotp_multi #(
   logic signed [FP6_VECTOR_SIZE-1:0][FP6_PROD_SHIFT_WIDTH-1:0] fp6_shifted_product;
   logic signed [FP4_VECTOR_SIZE-1:0][FP4_PROD_SHIFT_WIDTH-1:0] fp4_shifted_product;
 
-  fpnew_mxdotp_product_shifter #(
-    .SrcType(fp_src_t),
-    .VectorSize(VectorSize),
-    .SrcFmt(fpnew_pkg::FP8),
-    .PrecisionBits(PRECISION_BITS),
-    .ExpWidth(EXP_WIDTH),
-    .OutputWidth(PROD_SHIFT_WIDTH)
-  ) i_product_shifter_fp8 (
-    .operands_a(operands_a),
-    .operands_b(operands_b),
-    .info_a(info_a),
-    .info_b(info_b),
-    .product_signed(product_signed),
-    .src_fmt_q(src_fmt_q),
-    .shifted_product(shifted_product)
-  );
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP8] || SrcDotpFpFmtConfig[fpnew_pkg::FP8ALT]) begin : fp8_product_shifter
+    fpnew_mxdotp_product_shifter #(
+      .SrcType(fp_src_t),
+      .VectorSize(VectorSize),
+      .SrcFmt(fpnew_pkg::FP8), // TODO: For now, we assume that FP8 and FP8ALT are always enabled together
+      .PrecisionBits(PRECISION_BITS),
+      .ExpWidth(EXP_WIDTH),
+      .OutputWidth(PROD_SHIFT_WIDTH)
+    ) i_product_shifter_fp8 (
+      .operands_a(operands_a),
+      .operands_b(operands_b),
+      .info_a(info_a),
+      .info_b(info_b),
+      .product_signed(product_signed),
+      .src_fmt_q(src_fmt_q),
+      .shifted_product(shifted_product)
+    );
+  end else begin : no_fp8_product_shifter
+    assign shifted_product = '0;
+  end
 
-  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_product_shifter
-      fpnew_mxdotp_product_shifter #(
+  if (SrcDotpFpFmtConfig[fpnew_pkg::FP6] || SrcDotpFpFmtConfig[fpnew_pkg::FP6ALT]) begin : fp6_product_shifter
+    fpnew_mxdotp_product_shifter #(
       .SrcType(fp6_src_t),
       .VectorSize(FP6_VECTOR_SIZE),
-      .SrcFmt(fpnew_pkg::FP6), // TODO: Check if makes sense
+      .SrcFmt(fpnew_pkg::FP6), // TODO: For now, we assume that FP6 and FP6ALT are always enabled together
       .PrecisionBits(FP6_PREC_BITS),
-      .ExpWidth(5), // TODO: check this
-      .OutputWidth(FP6_PROD_SHIFT_WIDTH) // TODO: Check this
+      .ExpWidth(5),
+      .OutputWidth(FP6_PROD_SHIFT_WIDTH)
     ) i_product_shifter_fp6 (
       .operands_a(fp6_operands_a),
       .operands_b(fp6_operands_b),
@@ -395,7 +410,7 @@ module fpnew_mxdotp_multi #(
   // Adder data path
   // ------------------
   logic signed [SOP_FIXED_WIDTH-1:0] sum_product_fp8;
-  logic signed [FP6_SUM_WIDTH-1:0] sum_product_fp6;
+  logic signed [FP6_SUM_WIDTH-1:0]   sum_product_fp6;
   logic signed [FP4_SUM_WIDTH-1:0]   sum_product_fp4;
   logic signed [FIXED_SUM_WIDTH-1:0] sum_product;
 
@@ -411,8 +426,8 @@ module fpnew_mxdotp_multi #(
   if (SrcDotpFpFmtConfig[fpnew_pkg::FP6]) begin : fp6_adder_tree
     fpnew_mxdotp_adder_tree #(
       .VectorSize(FP6_VECTOR_SIZE),
-      .InputWidth(FP6_PROD_SHIFT_WIDTH), // TODO: Check this: either FP4 like add then shift, or FP8 like shift then add
-      .OutputWidth(FP6_SUM_WIDTH) // TODO: Check this
+      .InputWidth(FP6_PROD_SHIFT_WIDTH),
+      .OutputWidth(FP6_SUM_WIDTH)
     ) i_adder_tree_fp6 (
       .shifted_product(fp6_shifted_product),
       .sum_product(sum_product_fp6)
