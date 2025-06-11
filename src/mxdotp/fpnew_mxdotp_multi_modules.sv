@@ -105,7 +105,7 @@ module fpnew_mxdotp_classifier
   end
 
   if (FP6_VECTOR_SIZE != 0) begin : fp6_classifier
-    for (genvar fmt = 6; fmt < int'(NUM_FORMATS); fmt++) begin : fp6_fmt_src_init_inputs
+    for (genvar fmt = 0; fmt < int'(NUM_FORMATS); fmt++) begin : fp6_fmt_src_init_inputs
       // Set up some constants
       localparam int unsigned FP_WIDTH = fpnew_pkg::fp_width(fpnew_pkg::fp_format_e'(fmt));
       localparam int unsigned EXP_BITS = fpnew_pkg::exp_bits(fpnew_pkg::fp_format_e'(fmt));
@@ -125,7 +125,7 @@ module fpnew_mxdotp_classifier
           .info_o      ( fp6_info_q[fmt][2*FP6_VECTOR_SIZE-1:0]                        )
         );
         for (genvar op = 0; op < 2*FP6_VECTOR_SIZE; op++) begin : gen_operands
-          assign trimmed_ops[op]      = fp6_operands_post_inp_pipe[op][FP_WIDTH-1:0];
+          assign trimmed_ops[op]           = fp6_operands_post_inp_pipe[op][FP_WIDTH-1:0];
           assign fp6_fmt_sign[fmt][op]     = fp6_operands_post_inp_pipe[op][FP_WIDTH-1];
           assign fp6_fmt_exponent[fmt][op] = fp6_operands_post_inp_pipe[op][MAN_BITS+:EXP_BITS];
           assign fp6_fmt_mantissa[fmt][op] = fp6_operands_post_inp_pipe[op][MAN_BITS-1:0] <<
