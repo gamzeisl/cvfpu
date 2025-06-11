@@ -50,8 +50,12 @@ package fpnew_mxdotp_multi_pkg;
   localparam int unsigned SUPER_DST_MAN_BITS = SUPER_DST_FORMAT.man_bits;
 
   // Selected source formats
-  localparam int unsigned FP6_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ? 3 : 0;
-  localparam int unsigned FP4_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP4] == 1) ? ((SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ? 5 : 8) : 0;
+  // TODO: FP4 and FP6 does not work without FP8 yet
+  localparam int unsigned FP6_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ?
+                                           ((SrcDotpFpFmtConfig[fpnew_pkg::FP8] == 1) ? 3 : 11 ) : 0;
+  localparam int unsigned FP4_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP4] == 1) ?
+                                           ((SrcDotpFpFmtConfig[fpnew_pkg::FP8] == 1) ?
+                                           ((SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ? 5 : 8 ) : 16 ) : 0;
 
   // FP6 super format specific
   localparam fpnew_pkg::fp_encoding_t FP6_SUPER_FORMAT = fpnew_pkg::super_format(9'b000000110); // FP6 & FP6ALT
