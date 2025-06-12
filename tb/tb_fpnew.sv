@@ -176,22 +176,11 @@ module tb_fpnew;
           continue;  // Skip empty lines
         end
 
-        for (int i = 0; i < VectorSize; i++) begin
-          r = $sscanf(line, "%b,", operands_a_i[i]);
-          line = line.substr(SRC_WIDTH + 1, line.len()-1);
-        end
-        for (int i = 0; i < VectorSize; i++) begin
-          r = $sscanf(line, "%b,", operands_b_i[i]);
-          line = line.substr(SRC_WIDTH + 1, line.len()-1);
-        end
-
-        r = $sscanf(line, "%b,%b,%b,%b,%d,%d,%d,%d,%b,%d", 
-                    operands_c_i[0], operands_c_i[1], operand_d_i, expected_result, sum_prod, shift_acc, 
+        r = $sscanf(line, "%b,%b,%b,%b,%b,%b,%d,%d,%d,%d,%b,%d", 
+                    operands_i[0], operands_i[1], operands_c_i[0], operands_c_i[1], operand_d_i, expected_result, sum_prod, shift_acc, 
                     shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
 
         // Assign operands to the input signal, empyth bits are set to 1
-        operands_i[0] = {{(64-VectorSize*SRC_WIDTH){'1}}, operands_a_i};
-        operands_i[1] = {{(64-VectorSize*SRC_WIDTH){'1}}, operands_b_i};
         operands_i[2] = {{(64-2*SCALE_WIDTH-DST_WIDTH){'1}}, operands_c_i[1], operands_c_i[0], operand_d_i};
         
         count_applied++;

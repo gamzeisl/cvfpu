@@ -21,7 +21,7 @@ vsim -voptargs=$VOPT_ARG $DB_SW -pedanticerrors -lib $LIB  tb_fpnew
 
 if {$DEBUG == "ON"} {
     add log -r /*
-    # do ../wave_top.do
+    do ../wave_top.do
 }
 
 run -a
