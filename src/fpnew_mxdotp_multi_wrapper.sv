@@ -108,6 +108,8 @@ module fpnew_mxdotp_multi_wrapper #(
     count_d = count_q;
     local_fp6_stores_d = local_fp6_stores_q;
 
+    local_fp6_stores = '0;
+
     local_src_fmt_operand_a = '0;
     local_src_fmt_operand_b = '0;
     local_src_fmt_operand_a_rem = '0;

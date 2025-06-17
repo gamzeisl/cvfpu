@@ -51,6 +51,7 @@ package fpnew_mxdotp_multi_pkg;
 
   // Selected source formats
   // TODO: FP4 and FP6 does not work without FP8 yet
+  // TODO: Different vector sizes
   localparam int unsigned FP6_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ?
                                            ((SrcDotpFpFmtConfig[fpnew_pkg::FP8] == 1) ? 3 : 11 ) : 0;
   localparam int unsigned FP4_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP4] == 1) ?

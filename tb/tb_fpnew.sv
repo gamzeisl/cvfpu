@@ -38,7 +38,7 @@ module tb_fpnew;
   logic rst_ni;
 
   // Input signals
-  logic [2:0][64-1:0] operands_i;
+  logic [2:0][VectorSize*SRC_WIDTH-1:0] operands_i;
 
   logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i;
   logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i;
