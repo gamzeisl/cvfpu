@@ -52,10 +52,18 @@ sources:
   - src/lfsr_sr.sv
   - src/fpnew_top.sv
 
-  - src/mxdotp/fpnew_mxdotp_multi_pkg.sv
-  - src/mxdotp/fpnew_mxdotp_multi_modules.sv
-  - src/fpnew_mxdotp_multi.sv
-  - src/fpnew_mxdotp_multi_wrapper.sv
+  -
+    defines:
+      EN_FP8: 1
+      EN_FP8ALT: 1
+      EN_FP6: 1
+      EN_FP6ALT: 1
+      EN_FP4: 1
+    files:
+      - src/mxdotp/fpnew_mxdotp_multi_pkg.sv
+      - src/mxdotp/fpnew_mxdotp_multi_modules.sv
+      - src/fpnew_mxdotp_multi.sv
+      - src/fpnew_mxdotp_multi_wrapper.sv
 
   - target: tb
     files:
