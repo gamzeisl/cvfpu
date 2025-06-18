@@ -40,6 +40,8 @@ module tb_fpnew_mxdotp_multi;
   // Input signals
   logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i;
   logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i;
+  logic [1:0] operands_a_fp6_rem_i;
+  logic [1:0] operands_b_fp6_rem_i;
   logic [1:0][SCALE_WIDTH-1:0] operands_c_i;
   logic [DST_WIDTH-1:0] operand_d_i;
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i;
@@ -51,6 +53,10 @@ module tb_fpnew_mxdotp_multi;
   TagType tag_i;
   logic mask_i;
   AuxType aux_i;
+
+  // FP6 temporary variables
+  logic [11-1:0][6-1:0] fp6_operands_a;
+  logic [11-1:0][6-1:0] fp6_operands_b;
 
   // Input handshake
   logic in_valid_i;
@@ -94,6 +100,8 @@ module tb_fpnew_mxdotp_multi;
     .rst_ni(rst_ni),
     .operands_a_i(operands_a_i),
     .operands_b_i(operands_b_i),
+    .operands_a_fp6_rem_i(operands_a_fp6_rem_i),
+    .operands_b_fp6_rem_i(operands_b_fp6_rem_i),
     .operands_c_i(operands_c_i),
     .operand_d_i(operand_d_i),
     .is_boxed_i(is_boxed_i),
@@ -179,13 +187,28 @@ module tb_fpnew_mxdotp_multi;
           continue;  // Skip empty lines
         end
 
-        for (int i = 0; i < VectorSize; i++) begin
-          r = $sscanf(line, "%b,", operands_a_i[i]);
-          line = line.substr(SRC_WIDTH + 1, line.len()-1);
-        end
-        for (int i = 0; i < VectorSize; i++) begin
-          r = $sscanf(line, "%b,", operands_b_i[i]);
-          line = line.substr(SRC_WIDTH + 1, line.len()-1);
+        if ( src_fmt_i == fpnew_pkg::FP6 || src_fmt_i == fpnew_pkg::FP6ALT ) begin
+          for (int i = 0; i < 11; i++) begin
+            r = $sscanf(line, "%b,", fp6_operands_a[i]);
+            line = line.substr(SRC_WIDTH + 1, line.len()-1);
+          end
+          for (int i = 0; i < 11; i++) begin
+            r = $sscanf(line, "%b,", fp6_operands_b[i]);
+            line = line.substr(SRC_WIDTH + 1, line.len()-1);
+          end
+            operands_a_i = fp6_operands_a;
+            operands_a_fp6_rem_i = fp6_operands_a[10][5:4];
+            operands_b_i = fp6_operands_b;
+            operands_b_fp6_rem_i = fp6_operands_b[10][5:4];
+        end else begin
+          for (int i = 0; i < VectorSize; i++) begin
+            r = $sscanf(line, "%b,", operands_a_i[i]);
+            line = line.substr(SRC_WIDTH + 1, line.len()-1);
+          end
+          for (int i = 0; i < VectorSize; i++) begin
+            r = $sscanf(line, "%b,", operands_b_i[i]);
+            line = line.substr(SRC_WIDTH + 1, line.len()-1);
+          end
         end
 
         r = $sscanf(line, "%b,%b,%b,%b,%d,%d,%d,%d,%b,%d", 

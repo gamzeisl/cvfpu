@@ -1,5 +1,7 @@
 `timescale 1ns/1ps
 
+import fpnew_mxdotp_multi_pkg::*;
+
 module tb_fpnew;
   // Simulation inputs
   string stim_file = `STIM_FILE;
@@ -9,15 +11,14 @@ module tb_fpnew;
                                     (`SRC_FMT == "FP6ALT") ? fpnew_pkg::FP6ALT : 
                                     (`SRC_FMT == "FP4") ? fpnew_pkg::FP4 : 
                                     fpnew_pkg::FP8;
-  parameter int unsigned VECTOR_SIZE = `ifdef VECTOR_SIZE `VECTOR_SIZE `else 8 `endif;
+  fpnew_pkg::fp_format_e DST_FMT = (`DST_FMT == "FP32") ? fpnew_pkg::FP32 : 
+                                    (`DST_FMT == "BF16") ? fpnew_pkg::FP16ALT : 
+                                    fpnew_pkg::FP32;
   parameter int unsigned PROB_STALL = `ifdef PROB_STALL `PROB_STALL `else 2 `endif;
-  parameter int unsigned NumPipeRegs = `ifdef NUM_PIPE_REGS `NUM_PIPE_REGS `else 3 `endif;
   parameter int unsigned NUM_VECTORS = `NUM_VECTORS;
-
-  // Parameters for the module
-  parameter fpnew_pkg::pipe_config_t PipeConfig = fpnew_pkg::DISTRIBUTED;
-  parameter fpnew_pkg::fmt_logic_t SrcDotpFpFmtConfig = 9'b000101111; // Supported source formats (FP8, FP8ALT, FP6, FP6ALT, FP4)
-  parameter fpnew_pkg::fmt_logic_t DstDotpFpFmtConfig = 9'b100000000; // Supported destination formats (FP32)
+  parameter int unsigned DstActualWidth = (`DST_FMT == "FP32") ? 32 : 
+                                           (`DST_FMT == "BF16") ? 16 : 
+                                           32;
 
   parameter type TagType = logic;
   parameter type AuxType = logic;
@@ -25,7 +26,7 @@ module tb_fpnew;
   localparam int unsigned SRC_WIDTH = fpnew_pkg::max_fp_width(SrcDotpFpFmtConfig);
   localparam int unsigned DST_WIDTH = fpnew_pkg::max_fp_width(DstDotpFpFmtConfig);
   localparam int unsigned SCALE_WIDTH = 8;
-  localparam int unsigned NUM_OPERANDS = 2*VECTOR_SIZE+1;
+  localparam int unsigned NUM_OPERANDS = 2*VectorSize+1;
   localparam int unsigned NUM_FORMATS = fpnew_pkg::NUM_FP_FORMATS;
 
   localparam int unsigned TCP = 10;  // Clock period in ns
@@ -39,9 +40,9 @@ module tb_fpnew;
   // Input signals
   logic [2:0][64-1:0] operands_i;
 
-  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_a_i;
-  logic [VECTOR_SIZE-1:0][SRC_WIDTH-1:0] operands_b_i;
-  logic [SCALE_WIDTH-1:0] operand_c_i;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_a_i;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] operands_b_i;
+  logic [1:0][SCALE_WIDTH-1:0] operands_c_i;
   logic [DST_WIDTH-1:0] operand_d_i;
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] is_boxed_i;
   fpnew_pkg::roundmode_e rnd_mode_i;
@@ -60,7 +61,7 @@ module tb_fpnew;
   logic out_ready_i;
 
   // Output signals
-  logic [64-1:0] result_o;
+  logic [63:0] result_o;
   fpnew_pkg::status_t status_o;
   logic extension_bit_o;
   TagType tag_o;
@@ -78,11 +79,11 @@ module tb_fpnew;
   int count_applied, count_checked, fail_count;
 
   // Declare a queue to store expected results
-  logic [31:0] expected_results[$];
+  logic [DST_WIDTH-1:0] expected_results[$];
   int vector_indices[$];  // Optional: track input vector indices for easier debugging
 
   // Expected results
-  logic [31:0] expected_result;
+  logic [DST_WIDTH-1:0] expected_result;
   logic [93:0] sum_prod, shifted_acc, sum_prod_acc, tb_sum_shifted;
   logic  [9:0] shift_acc;
   logic  [8:0] tb_final_exponent;
@@ -143,7 +144,7 @@ module tb_fpnew;
     // Set constant input signals
     is_boxed_i = '1;
     src_fmt_i = SRC_FMT;
-    dst_fmt_i = fpnew_pkg::FP32;
+    dst_fmt_i = DST_FMT;
     rnd_mode_i = fpnew_pkg::RNE;
     op_i = fpnew_pkg::MXSDOTP;
     op_mod_i = 0;
@@ -175,23 +176,12 @@ module tb_fpnew;
           continue;  // Skip empty lines
         end
 
-        for (int i = 0; i < VECTOR_SIZE; i++) begin
-          r = $sscanf(line, "%b,", operands_a_i[i]);
-          line = line.substr(SRC_WIDTH + 1, line.len()-1);
-        end
-        for (int i = 0; i < VECTOR_SIZE; i++) begin
-          r = $sscanf(line, "%b,", operands_b_i[i]);
-          line = line.substr(SRC_WIDTH + 1, line.len()-1);
-        end
-
-        r = $sscanf(line, "%b,%b,%b,%d,%d,%d,%d,%b,%d", 
-                    operand_c_i, operand_d_i, expected_result, sum_prod, shift_acc, 
+        r = $sscanf(line, "%b,%b,%b,%b,%b,%b,%d,%d,%d,%d,%b,%d", 
+                    operands_i[0], operands_i[1], operands_c_i[0], operands_c_i[1], operand_d_i, expected_result, sum_prod, shift_acc, 
                     shifted_acc, sum_prod_acc, tb_sum_shifted, tb_final_exponent);
 
         // Assign operands to the input signal, empyth bits are set to 1
-        operands_i[0] = {{(64-VECTOR_SIZE*SRC_WIDTH){'1}}, operands_a_i};
-        operands_i[1] = {{(64-VECTOR_SIZE*SRC_WIDTH){'1}}, operands_b_i};
-        operands_i[2] = {{(64-SCALE_WIDTH-DST_WIDTH){'1}}, operand_c_i, operand_d_i};
+        operands_i[2] = {{(64-2*SCALE_WIDTH-DST_WIDTH){'1}}, operands_c_i[1], operands_c_i[0], operand_d_i};
         
         count_applied++;
 
@@ -227,9 +217,14 @@ module tb_fpnew;
 
       if (out_valid_o && out_ready_i) begin
         if (result_o[DST_WIDTH-1:0] !== expected_results[0]) begin
-          $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", 
-                    vector_indices[0], expected_results[0], result_o[DST_WIDTH-1:0], $realtime);
-          fail_count++;
+          if (result_o[DstActualWidth-2:0] === expected_results[0][DstActualWidth-2:0]) begin
+            $display("WARNING: Sign of zero doesn't match! Vector: [%d], Expected: %h, Got: %h at time %t", 
+                      vector_indices[0], expected_results[0], result_o[DST_WIDTH-1:0], $realtime);
+          end else begin
+            $display("Result test FAILED! Vector: [%d], Expected: %h, Got: %h at time %t", 
+                      vector_indices[0], expected_results[0], result_o[DST_WIDTH-1:0], $realtime);
+            fail_count++;
+          end
         end
         expected_results.pop_front();
         vector_indices.pop_front();

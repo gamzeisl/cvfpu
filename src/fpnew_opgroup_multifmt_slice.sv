@@ -467,8 +467,6 @@ or on 16b inputs producing 32b outputs");
         );
       end else if (OpGroup == fpnew_pkg::MXDOTP) begin : lane_instance
         fpnew_mxdotp_multi_wrapper #(
-          .NumPipeRegs(NumPipeRegs),
-          .PipeConfig(PipeConfig),
           .TagType(TagType),
           .AuxType(logic [AUX_BITS-1:0])
           ) i_fpnew_mxdotp_multi_wrapper (

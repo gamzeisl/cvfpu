@@ -13,12 +13,11 @@
 
 // Author: Gamze Islamoglu <gislamoglu@iis.ee.ethz.ch>
 
+import fpnew_mxdotp_multi_pkg::*;
+
 module fpnew_mxdotp_multi_wrapper #(
   parameter int unsigned             LaneWidth   = 64,
-  // TODO:
-  parameter int unsigned             VectorSize  = 8,
-  parameter int unsigned             NumPipeRegs = 0,
-  parameter fpnew_pkg::pipe_config_t PipeConfig  = fpnew_pkg::DISTRIBUTED,
+  parameter int unsigned             Unroll      = 8, // Unroll factor for FP6 extended operands, possible values: 1, 2, 4, 8
   parameter type                     TagType     = logic,
   parameter type                     AuxType     = logic,
   parameter fpnew_pkg::rsr_impl_t    StochasticRndImplementation = fpnew_pkg::DEFAULT_NO_RSR,
@@ -30,7 +29,8 @@ module fpnew_mxdotp_multi_wrapper #(
   localparam int unsigned           SCALE_WIDTH    = 8,
   localparam int unsigned           NUM_OPERANDS   = 2*VectorSize+1, // scale is not included
   localparam int                    OPERAND_WIDTH  = LaneWidth,
-  localparam int unsigned           NUM_FORMATS    = fpnew_pkg::NUM_FP_FORMATS
+  localparam int unsigned           NUM_FORMATS    = fpnew_pkg::NUM_FP_FORMATS,
+  localparam int                    UNROLL_IDX_WIDTH = (Unroll > 1) ? $clog2(Unroll) : 1
 ) (
   input logic                          clk_i,
   input logic                          rst_ni,
@@ -66,13 +66,97 @@ module fpnew_mxdotp_multi_wrapper #(
   // -----------------
   // Input processing
   // -----------------
-  logic [NUM_FORMATS-1:0][VectorSize-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_a;
-  logic [NUM_FORMATS-1:0][VectorSize-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_b;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_a;
+  logic [VectorSize-1:0][SRC_WIDTH-1:0] local_src_fmt_operand_b;
+  logic [1:0] local_src_fmt_operand_a_rem;
+  logic [1:0] local_src_fmt_operand_b_rem;
   logic [1:0][SCALE_WIDTH-1:0] local_src_fmt_operand_c;
   logic [NUM_FORMATS-1:0][DST_WIDTH-1:0] local_src_fmt_operand_d;
   logic [NUM_FORMATS-1:0][NUM_OPERANDS-1:0] local_is_boxed;
   logic [OPERAND_WIDTH-1:0] local_result;
 
+  // -------------------------
+  // Extended operands for FP6
+  // -------------------------
+
+  typedef enum logic [1:0] {
+      STEP0 = 2'b00,
+      STEP1 = 2'b01,
+      STEP2 = 2'b10
+  } fp6_step_e;
+
+  fp6_step_e step;
+
+  // Count for the number of FP6 extended operands processed
+  // Each 192b/6b = 32 FP6 operands are processed in 3 steps
+  logic [$clog2(3*Unroll)-1:0] count_q, count_d;
+  logic [UNROLL_IDX_WIDTH-1:0] unroll_index;
+
+  // Store the FP6 extended operands
+  logic [1:0][Unroll-1:0][3:0] local_fp6_stores_d, local_fp6_stores_q;
+  logic [1:0][3:0] local_fp6_stores;
+
+  if (Unroll > 1) begin
+    assign unroll_index = count_q[$clog2(Unroll)-1:0];
+  end else begin
+    assign unroll_index = '0;
+  end
+
+  assign step = fp6_step_e'(count_q >> $clog2(Unroll));
+
+  always_comb begin
+    count_d = count_q;
+    local_fp6_stores_d = local_fp6_stores_q;
+
+    local_src_fmt_operand_a = '0;
+    local_src_fmt_operand_b = '0;
+    local_src_fmt_operand_a_rem = '0;
+    local_src_fmt_operand_b_rem = '0;
+
+    if (src_fmt_i == fpnew_pkg::FP6 || src_fmt_i == fpnew_pkg::FP6ALT) begin
+      if (step == STEP0) begin
+        local_src_fmt_operand_a = {4'b0000, operands_i[0][59:0]};
+        local_fp6_stores[0] = operands_i[0][63:60];
+        local_src_fmt_operand_b = {4'b0000, operands_i[1][59:0]};
+        local_fp6_stores[1] = operands_i[1][63:60];
+      end else if (step == STEP1) begin
+        local_src_fmt_operand_a = {operands_i[0][59:0], local_fp6_stores_q[0][unroll_index][3:0]};
+        local_src_fmt_operand_a_rem = operands_i[0][61:60];
+        local_fp6_stores[0] = {2'b00, operands_i[0][63:62]};
+        local_src_fmt_operand_b = {operands_i[1][59:0], local_fp6_stores_q[1][unroll_index][3:0]};
+        local_src_fmt_operand_b_rem = operands_i[1][61:60];
+        local_fp6_stores[1] = {2'b00, operands_i[1][63:62]};
+      end else if (step == STEP2) begin
+        local_src_fmt_operand_a = {operands_i[0][61:0], local_fp6_stores_q[0][unroll_index][1:0]};
+        local_src_fmt_operand_a_rem = operands_i[0][63:62];
+        local_src_fmt_operand_b = {operands_i[1][61:0], local_fp6_stores_q[1][unroll_index][1:0]};
+        local_src_fmt_operand_b_rem = operands_i[1][63:62];
+      end
+
+      if (in_valid_i && in_ready_o) begin
+        // Store the FP6 extended operands
+        local_fp6_stores_d[0][unroll_index] = local_fp6_stores[0];
+        local_fp6_stores_d[1][unroll_index] = local_fp6_stores[1];
+        count_d = count_q + 1;
+        if (count_d == 3 * Unroll) begin
+          count_d = '0;
+        end
+      end
+    end else begin
+        local_src_fmt_operand_a = operands_i[0];
+        local_src_fmt_operand_b = operands_i[1];
+    end
+  end
+
+  always_ff @(posedge clk_i or negedge rst_ni) begin
+    if (!rst_ni) begin
+      count_q <= '0;
+      local_fp6_stores_q <= '0;
+    end else begin
+      count_q <= count_d;
+      local_fp6_stores_q <= local_fp6_stores_d;
+    end
+  end
 
   // ----------------------------------
   // assign scale operands
@@ -91,24 +175,11 @@ module fpnew_mxdotp_multi_wrapper #(
     localparam int unsigned FP_WIDTH_DST_MIN = fpnew_pkg::minimum(DST_WIDTH, FP_WIDTH);
 
     always_comb begin : nanbox
-      // nan-box if needed
-      local_src_fmt_operand_a[fmt] = '1;
-      local_src_fmt_operand_b[fmt] = '1;
+      // TODO: nan-box if needed
       local_src_fmt_operand_d[fmt] = '1;
-
       local_src_fmt_operand_d[fmt][FP_WIDTH_DST_MIN-1:0] = operands_i[2][FP_WIDTH_DST_MIN-1:0];
 
       for (int i = 0; i < VectorSize; i++) begin
-        if (fmt == fpnew_pkg::FP4) begin // Pack two FP4 into one FP8
-          local_src_fmt_operand_a[fmt][i] = operands_i[0][i*2*FP_WIDTH_MIN +: 2*FP_WIDTH_MIN];
-          local_src_fmt_operand_b[fmt][i] = operands_i[1][i*2*FP_WIDTH_MIN +: 2*FP_WIDTH_MIN];
-        end else if (fmt == fpnew_pkg::FP6 || fmt == fpnew_pkg::FP6ALT) begin // Assuming FP6 and FP6ALT are stored as FP8
-          local_src_fmt_operand_a[fmt][i] = operands_i[0][i*SRC_WIDTH +: FP_WIDTH_MIN];
-          local_src_fmt_operand_b[fmt][i] = operands_i[1][i*SRC_WIDTH +: FP_WIDTH_MIN];
-        end else begin
-          local_src_fmt_operand_a[fmt][i] = operands_i[0][i*FP_WIDTH_MIN +: FP_WIDTH_MIN];
-          local_src_fmt_operand_b[fmt][i] = operands_i[1][i*FP_WIDTH_MIN +: FP_WIDTH_MIN];
-        end
         local_is_boxed[fmt][i] = is_boxed_i[fmt][0];
         local_is_boxed[fmt][i+VectorSize] = is_boxed_i[fmt][1];
       end
@@ -123,8 +194,10 @@ module fpnew_mxdotp_multi_wrapper #(
   ) i_fpnew_mxdotp_multi (
     .clk_i,
     .rst_ni,
-    .operands_a_i ( local_src_fmt_operand_a[src_fmt_i] ),
-    .operands_b_i ( local_src_fmt_operand_b[src_fmt_i] ),
+    .operands_a_i ( local_src_fmt_operand_a ),
+    .operands_b_i ( local_src_fmt_operand_b ),
+    .operands_a_fp6_rem_i ( local_src_fmt_operand_a_rem ),
+    .operands_b_fp6_rem_i ( local_src_fmt_operand_b_rem ),
     .operands_c_i ( local_src_fmt_operand_c            ),
     .operand_d_i  ( local_src_fmt_operand_d[dst_fmt_i] ),
     .is_boxed_i   ( local_is_boxed                     ),

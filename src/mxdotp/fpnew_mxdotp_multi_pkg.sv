@@ -49,6 +49,20 @@ package fpnew_mxdotp_multi_pkg;
   localparam int unsigned SUPER_DST_EXP_BITS = SUPER_DST_FORMAT.exp_bits;
   localparam int unsigned SUPER_DST_MAN_BITS = SUPER_DST_FORMAT.man_bits;
 
+  // Selected source formats
+  // TODO: FP4 and FP6 does not work without FP8 yet
+  localparam int unsigned FP6_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ?
+                                           ((SrcDotpFpFmtConfig[fpnew_pkg::FP8] == 1) ? 3 : 11 ) : 0;
+  localparam int unsigned FP4_VECTOR_SIZE = (SrcDotpFpFmtConfig[fpnew_pkg::FP4] == 1) ?
+                                           ((SrcDotpFpFmtConfig[fpnew_pkg::FP8] == 1) ?
+                                           ((SrcDotpFpFmtConfig[fpnew_pkg::FP6] == 1) ? 5 : 8 ) : 16 ) : 0;
+
+  // FP6 super format specific
+  localparam fpnew_pkg::fp_encoding_t FP6_SUPER_FORMAT = fpnew_pkg::super_format(9'b000000110); // FP6 & FP6ALT
+  localparam int unsigned FP6_EXP_BITS  = FP6_SUPER_FORMAT.exp_bits;
+  localparam int unsigned FP6_MAN_BITS  = FP6_SUPER_FORMAT.man_bits;
+  localparam int unsigned FP6_PREC_BITS = FP6_MAN_BITS + 1;
+
   // FP4 specific
   localparam int unsigned FP4_EXP_BITS  = fpnew_pkg::exp_bits(fpnew_pkg::FP4);
   localparam int unsigned FP4_MAN_BITS  = fpnew_pkg::man_bits(fpnew_pkg::FP4);
@@ -71,10 +85,15 @@ package fpnew_mxdotp_multi_pkg;
   localparam int signed   MAX_ACC_SHIFT_AMOUNT = FIXED_SUM_WIDTH - DST_PRECISION_BITS - 1; // Maximum allowable shift, -1 for the sign bit
   localparam int unsigned SOP_SHIFT = ANCHOR - 2*SUPER_MAN_BITS; // Constant left shift amount for the SOP to align the fractional point
 
+  // FP6 specific
+  localparam int unsigned FP6_PROD_WIDTH       = 2*FP6_PREC_BITS + 1; // 2p+1 for the product
+  localparam int unsigned FP6_PROD_SHIFT_WIDTH = 2*(2**FP6_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP6)) + FP6_PROD_WIDTH + 4; // 2*(2^e-1-bias) + 2p+1 + 4, (2^e-1-bias): max shift amount; +4 is due to the minimum value of the sum of exponents for FP6 (-4)
+  localparam int unsigned FP6_SUM_WIDTH  = $clog2(FP6_VECTOR_SIZE) + FP6_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1
+
   // FP4 specific
   localparam int unsigned FP4_PROD_WIDTH       = 2*FP4_PREC_BITS + 1; // 2p+1 for the product
-  localparam int unsigned FP4_PROD_SHIFT_WIDTH = 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_WIDTH + 1; // 2*(2^e-1-bias) + 2p+1 + 1, (2^e-1-bias): max shift amount, +1 for the sign bit
-  localparam int unsigned FP4_SUM_WIDTH  = VECTOR_BITS + FP4_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1 + 1
+  localparam int unsigned FP4_PROD_SHIFT_WIDTH = 2*(2**FP4_EXP_BITS-1-fpnew_pkg::bias(fpnew_pkg::FP4)) + FP4_PROD_WIDTH; // 2*(2^e-1-bias) + 2p+1, (2^e-1-bias): max shift amount
+  localparam int unsigned FP4_SUM_WIDTH  = $clog2(FP4_VECTOR_SIZE) + FP4_PROD_SHIFT_WIDTH; // log2(k) + 2*(2^e-1-bias) + 2p+1
 
   // Internal exponent width of FMA must accomodate all meaningful exponent values in order to avoid
   // datapath leakage. This is either given by the exponent bits or the width of the LZC result.
@@ -111,9 +130,14 @@ package fpnew_mxdotp_multi_pkg;
   } fp_src_t;
   typedef struct packed {
     logic                    sign;
+    logic [FP6_EXP_BITS-1:0] exponent;
+    logic [FP6_MAN_BITS-1:0] mantissa;
+  } fp6_src_t;
+  typedef struct packed {
+    logic                    sign;
     logic [FP4_EXP_BITS-1:0] exponent;
     logic [FP4_MAN_BITS-1:0] mantissa;
-  } fp_fp4_src_t;
+  } fp4_src_t;
   typedef struct packed {
     logic                          sign;
     logic [SUPER_DST_EXP_BITS-1:0] exponent;
