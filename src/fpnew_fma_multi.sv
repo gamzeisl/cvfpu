@@ -487,7 +487,7 @@ module fpnew_fma_multi #(
     assign im_early_pipe_ready[i] = im_early_pipe_ready[i+1] | ~im_early_pipe_valid_q[i+1];
     // Valid: enabled by ready signal, synchronous clear with the flush signal
     `FFLARNC(im_early_pipe_valid_q[i+1], im_early_pipe_valid_q[i], im_early_pipe_ready[i], flush_i, 1'b0, clk_i, rst_ni)
-    // Enable register if pipleine ready and a valid data item is present
+    // Enable register if pipeline ready and a valid data item is present
     assign reg_ena = im_early_pipe_ready[i] & im_early_pipe_valid_q[i];
     // Generate the pipeline registers within the stages, use enable-registers
     `FFL(im_early_pipe_mantissa_a_q[i+1],     im_early_pipe_mantissa_a_q[i],     reg_ena, '0)
